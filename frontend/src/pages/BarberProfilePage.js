@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Star, MapPin, Clock, ArrowLeft, Phone, Scissors,
-  CreditCard, ChevronRight, Image as ImageIcon
+  CreditCard, ChevronRight, Image as ImageIcon, MessageSquare, Send
 } from "lucide-react";
 import axios from "axios";
 
@@ -19,12 +19,15 @@ export default function BarberProfilePage() {
   const [barber, setBarber] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [reviews, setReviews] = useState([]);
 
   useEffect(() => {
     (async () => {
       try {
         const res = await axios.get(`${API}/barbers/${id}`);
         setBarber(res.data);
+        const revRes = await axios.get(`${API}/barbers/${id}/reviews`);
+        setReviews(revRes.data);
       } catch {
         navigate("/explore");
       } finally {
@@ -188,6 +191,45 @@ export default function BarberProfilePage() {
         )}
 
         <Separator className="bg-zinc-800 my-6" />
+
+        {/* Reviews */}
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2" style={{ fontFamily: "Syne" }}>
+            <MessageSquare className="w-5 h-5 text-amber-500" />
+            Resenas ({reviews.length})
+          </h2>
+          {reviews.length === 0 ? (
+            <p className="text-zinc-500 text-sm">Este barbero aun no tiene resenas.</p>
+          ) : (
+            <div className="space-y-3">
+              {reviews.map((rev) => (
+                <div key={rev.review_id} data-testid={`review-${rev.review_id}`} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {rev.client_picture ? (
+                        <img src={rev.client_picture} alt="" className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-400">
+                          {rev.client_name?.[0]}
+                        </div>
+                      )}
+                      <span className="text-sm font-medium text-white">{rev.client_name}</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      {[1,2,3,4,5].map((s) => (
+                        <Star key={s} className={`w-3 h-3 ${s <= rev.rating ? "text-amber-500 fill-amber-500" : "text-zinc-600"}`} />
+                      ))}
+                    </div>
+                  </div>
+                  {rev.comment && <p className="text-sm text-zinc-400">{rev.comment}</p>}
+                  <p className="text-[10px] text-zinc-600 mt-2">
+                    {new Date(rev.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Sticky Book Button */}
         <div className="pb-8">

@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { BottomNav } from "@/components/BottomNav";
-import { Search, Star, MapPin, Scissors, X } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
+import { Search, Star, MapPin, Scissors, X, SlidersHorizontal } from "lucide-react";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -38,6 +39,8 @@ export default function MapSearchPage() {
   const [selectedBarber, setSelectedBarber] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({ minRating: "", maxPrice: "", serviceType: "" });
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -51,9 +54,11 @@ export default function MapSearchPage() {
   useEffect(() => {
     const fetchBarbers = async () => {
       try {
-        const res = await axios.get(`${API}/barbers`, {
-          params: { lat: center[0], lng: center[1], radius: 50000 },
-        });
+        const params = { lat: center[0], lng: center[1], radius: 50000 };
+        if (filters.minRating) params.min_rating = parseFloat(filters.minRating);
+        if (filters.maxPrice) params.max_price = parseFloat(filters.maxPrice);
+        if (filters.serviceType) params.service_type = filters.serviceType;
+        const res = await axios.get(`${API}/barbers`, { params });
         setBarbers(res.data);
       } catch (err) {
         console.error("Error loading barbers:", err);
@@ -62,7 +67,7 @@ export default function MapSearchPage() {
       }
     };
     fetchBarbers();
-  }, [center]);
+  }, [center, filters]);
 
   const filteredBarbers = useMemo(() => {
     if (!searchQuery) return barbers;
@@ -77,28 +82,80 @@ export default function MapSearchPage() {
 
   return (
     <div className="h-screen flex flex-col bg-zinc-950">
-      {/* Search Bar */}
+      {/* Search Bar + Filters */}
       <div className="absolute top-4 left-4 right-4 z-[1000]">
         <div className="glass rounded-2xl border border-zinc-800 p-3 max-w-lg mx-auto">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-            <Input
-              data-testid="map-search-input"
-              placeholder="Buscar barbero, zona o servicio..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-zinc-800/50 border-zinc-700 text-white placeholder:text-zinc-500 focus:border-amber-500 rounded-xl"
-            />
-            {searchQuery && (
-              <button
-                data-testid="map-search-clear"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                <X className="w-4 h-4 text-zinc-500 hover:text-white" />
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <Input
+                data-testid="map-search-input"
+                placeholder="Buscar barbero, zona o servicio..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 bg-zinc-800/50 border-zinc-700 text-white placeholder:text-zinc-500 focus:border-amber-500 rounded-xl"
+              />
+              {searchQuery && (
+                <button data-testid="map-search-clear" onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <X className="w-4 h-4 text-zinc-500 hover:text-white" />
+                </button>
+              )}
+            </div>
+            <button
+              data-testid="toggle-filters-btn"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`p-2.5 rounded-xl border transition-colors ${showFilters ? "bg-amber-500 text-black border-amber-500" : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:text-white"}`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+            <NotificationBell />
           </div>
+          {showFilters && (
+            <div className="mt-3 pt-3 border-t border-zinc-700 grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-1">Rating min.</label>
+                <select
+                  data-testid="filter-rating"
+                  value={filters.minRating}
+                  onChange={(e) => setFilters({...filters, minRating: e.target.value})}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-2"
+                >
+                  <option value="">Todos</option>
+                  <option value="4">4+ estrellas</option>
+                  <option value="4.5">4.5+ estrellas</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-1">Precio max.</label>
+                <select
+                  data-testid="filter-price"
+                  value={filters.maxPrice}
+                  onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-2"
+                >
+                  <option value="">Todos</option>
+                  <option value="15">Hasta 15€</option>
+                  <option value="25">Hasta 25€</option>
+                  <option value="40">Hasta 40€</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-1">Servicio</label>
+                <select
+                  data-testid="filter-service"
+                  value={filters.serviceType}
+                  onChange={(e) => setFilters({...filters, serviceType: e.target.value})}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-2"
+                >
+                  <option value="">Todos</option>
+                  <option value="corte">Corte</option>
+                  <option value="barba">Barba</option>
+                  <option value="tinte">Tinte</option>
+                  <option value="degradado">Degradado</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -8,6 +9,9 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
+import shutil
+import string
+import random
 from datetime import datetime, timezone, timedelta
 import httpx
 from passlib.hash import bcrypt
@@ -27,6 +31,10 @@ api_router = APIRouter(prefix="/api")
 
 TRANSPORT_FEE = 5.00
 MANAGEMENT_FEE = 2.50
+REFERRAL_CREDIT = 5.00
+
+UPLOAD_DIR = ROOT_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -71,6 +79,21 @@ class BookingCreate(BaseModel):
 class CheckoutRequest(BaseModel):
     booking_id: str
     origin_url: str
+
+class ReviewCreate(BaseModel):
+    barber_id: str
+    booking_id: str
+    rating: int
+    comment: str = ""
+
+class AvailabilityDay(BaseModel):
+    date: str
+    available: bool = True
+    start_hour: int = 9
+    end_hour: int = 19
+
+class ReferralApply(BaseModel):
+    referral_code: str
 
 
 # ==================== AUTH HELPERS ====================
@@ -121,6 +144,19 @@ async def set_session(response: Response, user_id: str) -> str:
         path="/", max_age=7 * 24 * 60 * 60
     )
     return token
+
+async def create_notification(user_id: str, notif_type: str, title: str, message: str, metadata: dict = None):
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+        "user_id": user_id, "type": notif_type,
+        "title": title, "message": message,
+        "read": False, "metadata": metadata or {},
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+def generate_referral_code():
+    chars = string.ascii_uppercase + string.digits
+    return "CLIP" + ''.join(random.choices(chars, k=6))
 
 
 # ==================== AUTH ROUTES ====================
@@ -220,7 +256,11 @@ async def logout(request: Request, response: Response):
 # ==================== BARBER ROUTES ====================
 
 @api_router.get("/barbers")
-async def list_barbers(lat: float = 40.4168, lng: float = -3.7038, radius: float = 50000):
+async def list_barbers(
+    lat: float = 40.4168, lng: float = -3.7038, radius: float = 50000,
+    min_price: Optional[float] = None, max_price: Optional[float] = None,
+    min_rating: Optional[float] = None, service_type: Optional[str] = None
+):
     try:
         barbers = await db.users.find(
             {
@@ -239,6 +279,25 @@ async def list_barbers(lat: float = 40.4168, lng: float = -3.7038, radius: float
             {"role": "barber", "barber_profile.is_active": True},
             {"_id": 0, "password_hash": 0}
         ).to_list(50)
+
+    if min_rating is not None:
+        barbers = [b for b in barbers if b.get("barber_profile", {}).get("rating", 0) >= min_rating]
+    if service_type:
+        q = service_type.lower()
+        barbers = [b for b in barbers if any(q in s["name"].lower() for s in b.get("barber_profile", {}).get("services", []))]
+    if min_price is not None or max_price is not None:
+        def price_ok(b):
+            prices = [s["price"] for s in b.get("barber_profile", {}).get("services", [])]
+            if not prices:
+                return False
+            low = min(prices)
+            if min_price is not None and low < min_price:
+                return False
+            if max_price is not None and low > max_price:
+                return False
+            return True
+        barbers = [b for b in barbers if price_ok(b)]
+
     return barbers
 
 @api_router.get("/barbers/{barber_id}")
@@ -257,9 +316,18 @@ async def get_available_slots(barber_id: str, date: str):
     if not barber:
         raise HTTPException(status_code=404)
 
-    avail = barber.get("barber_profile", {}).get("availability", {})
+    profile = barber.get("barber_profile", {})
+    avail = profile.get("availability", {})
     start_h = avail.get("start_hour", 9)
     end_h = avail.get("end_hour", 19)
+
+    custom = profile.get("custom_schedule", {})
+    if date in custom:
+        day_cfg = custom[date]
+        if not day_cfg.get("available", True):
+            return {"slots": [], "date": date}
+        start_h = day_cfg.get("start_hour", start_h)
+        end_h = day_cfg.get("end_hour", end_h)
 
     slots = []
     for h in range(start_h, end_h):
@@ -399,6 +467,26 @@ async def create_booking(data: BookingCreate, request: Request):
     }
     await db.bookings.insert_one(booking)
     booking.pop("_id", None)
+
+    # Notify barber
+    await create_notification(
+        data.barber_id, "new_booking", "Nueva reserva",
+        f"{user['name']} ha reservado {service['name']} para el {data.date} a las {data.time}",
+        {"booking_id": booking_id}
+    )
+
+    # Complete referral on first booking
+    if user.get("referred_by"):
+        ref = await db.referrals.find_one({"referred_id": user["user_id"], "status": "pending"})
+        if ref:
+            await db.referrals.update_one({"referral_id": ref["referral_id"]}, {"$set": {"status": "completed"}})
+            await db.users.update_one({"user_id": ref["referrer_id"]}, {"$inc": {"credits": REFERRAL_CREDIT}})
+            await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"credits": REFERRAL_CREDIT}})
+            await create_notification(ref["referrer_id"], "referral_credit", "Credito de referido",
+                f"Has recibido {REFERRAL_CREDIT}€ porque {user['name']} completo su primera reserva.", {})
+            await create_notification(user["user_id"], "referral_credit", "Credito de bienvenida",
+                f"Has recibido {REFERRAL_CREDIT}€ por usar un codigo de referido.", {})
+
     return booking
 
 @api_router.get("/bookings")
@@ -420,6 +508,19 @@ async def update_booking_status(booking_id: str, request: Request):
     if status == "cancelled" and user["user_id"] not in [booking["barber_id"], booking["client_id"]]:
         raise HTTPException(status_code=403)
     await db.bookings.update_one({"booking_id": booking_id}, {"$set": {"status": status}})
+
+    # Notify on status changes
+    if status == "confirmed":
+        await create_notification(booking["client_id"], "booking_update", "Reserva confirmada",
+            f"Tu reserva con {booking['barber_name']} ha sido confirmada.", {"booking_id": booking_id})
+    elif status == "cancelled":
+        target = booking["client_id"] if user["user_id"] == booking["barber_id"] else booking["barber_id"]
+        await create_notification(target, "booking_update", "Reserva cancelada",
+            f"La reserva de {booking['service_name']} ha sido cancelada.", {"booking_id": booking_id})
+    elif status == "completed":
+        await create_notification(booking["client_id"], "booking_update", "Reserva completada",
+            f"Tu cita con {booking['barber_name']} se ha completado. Deja una resena!", {"booking_id": booking_id})
+
     return {"booking_id": booking_id, "status": status}
 
 
@@ -518,6 +619,184 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     return {"status": "ok"}
+
+
+# ==================== REVIEW ROUTES ====================
+
+@api_router.post("/reviews")
+async def create_review(data: ReviewCreate, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Solo clientes pueden dejar resenas")
+
+    booking = await db.bookings.find_one({
+        "booking_id": data.booking_id, "client_id": user["user_id"], "barber_id": data.barber_id
+    }, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+
+    if await db.reviews.find_one({"booking_id": data.booking_id}):
+        raise HTTPException(status_code=409, detail="Ya has dejado una resena para esta reserva")
+
+    review = {
+        "review_id": f"rev_{uuid.uuid4().hex[:10]}",
+        "booking_id": data.booking_id, "client_id": user["user_id"],
+        "client_name": user["name"], "client_picture": user.get("picture", ""),
+        "barber_id": data.barber_id,
+        "rating": max(1, min(5, data.rating)), "comment": data.comment,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.reviews.insert_one(review)
+    review.pop("_id", None)
+
+    all_reviews = await db.reviews.find({"barber_id": data.barber_id}, {"_id": 0, "rating": 1}).to_list(1000)
+    avg = sum(r["rating"] for r in all_reviews) / len(all_reviews)
+    await db.users.update_one(
+        {"user_id": data.barber_id},
+        {"$set": {"barber_profile.rating": round(avg, 1), "barber_profile.review_count": len(all_reviews)}}
+    )
+
+    await create_notification(data.barber_id, "new_review", "Nueva resena",
+        f"{user['name']} te ha dejado una resena de {data.rating} estrellas", {"review_id": review["review_id"]})
+
+    return review
+
+@api_router.get("/barbers/{barber_id}/reviews")
+async def get_barber_reviews(barber_id: str):
+    return await db.reviews.find({"barber_id": barber_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+
+
+# ==================== NOTIFICATION ROUTES ====================
+
+@api_router.get("/notifications")
+async def get_notifications(request: Request):
+    user = await get_current_user(request)
+    return await db.notifications.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(request: Request):
+    user = await get_current_user(request)
+    count = await db.notifications.count_documents({"user_id": user["user_id"], "read": False})
+    return {"count": count}
+
+@api_router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, request: Request):
+    user = await get_current_user(request)
+    await db.notifications.update_one(
+        {"notification_id": notification_id, "user_id": user["user_id"]}, {"$set": {"read": True}}
+    )
+    return {"message": "ok"}
+
+@api_router.put("/notifications/read-all")
+async def mark_all_read(request: Request):
+    user = await get_current_user(request)
+    await db.notifications.update_many({"user_id": user["user_id"], "read": False}, {"$set": {"read": True}})
+    return {"message": "ok"}
+
+
+# ==================== REFERRAL ROUTES ====================
+
+@api_router.get("/referral/code")
+async def get_referral_code(request: Request):
+    user = await get_current_user(request)
+    code = user.get("referral_code")
+    if not code:
+        code = generate_referral_code()
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"referral_code": code, "credits": 0.0}})
+
+    referrals = await db.referrals.find({"referrer_id": user["user_id"]}, {"_id": 0}).to_list(100)
+    completed = len([r for r in referrals if r["status"] == "completed"])
+
+    return {
+        "referral_code": code, "total_referrals": len(referrals),
+        "completed_referrals": completed, "credits": user.get("credits", 0.0)
+    }
+
+@api_router.post("/referral/apply")
+async def apply_referral_code(data: ReferralApply, request: Request):
+    user = await get_current_user(request)
+    if user.get("referred_by"):
+        raise HTTPException(status_code=400, detail="Ya has usado un codigo de referido")
+
+    referrer = await db.users.find_one({"referral_code": data.referral_code}, {"_id": 0})
+    if not referrer:
+        raise HTTPException(status_code=404, detail="Codigo de referido no valido")
+    if referrer["user_id"] == user["user_id"]:
+        raise HTTPException(status_code=400, detail="No puedes usar tu propio codigo")
+
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"referred_by": data.referral_code}})
+    await db.referrals.insert_one({
+        "referral_id": f"ref_{uuid.uuid4().hex[:10]}", "referrer_id": referrer["user_id"],
+        "referred_id": user["user_id"], "referred_name": user["name"],
+        "status": "pending", "credit_amount": REFERRAL_CREDIT,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    return {"message": f"Codigo aplicado. Ambos recibireis {REFERRAL_CREDIT}€ despues de tu primera reserva."}
+
+@api_router.get("/referral/credits")
+async def get_credits(request: Request):
+    user = await get_current_user(request)
+    return {"credits": user.get("credits", 0.0)}
+
+
+# ==================== AVAILABILITY ROUTES ====================
+
+@api_router.put("/barbers/availability/custom")
+async def set_custom_availability(data: AvailabilityDay, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "barber":
+        raise HTTPException(status_code=403)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {f"barber_profile.custom_schedule.{data.date}": {
+            "available": data.available, "start_hour": data.start_hour, "end_hour": data.end_hour
+        }}}
+    )
+    return {"message": f"Disponibilidad para {data.date} actualizada"}
+
+@api_router.get("/barbers/{barber_id}/availability")
+async def get_barber_availability(barber_id: str):
+    barber = await db.users.find_one({"user_id": barber_id, "role": "barber"}, {"_id": 0})
+    if not barber:
+        raise HTTPException(status_code=404)
+    p = barber.get("barber_profile", {})
+    return {
+        "weekdays": p.get("availability", {}).get("weekdays", []),
+        "start_hour": p.get("availability", {}).get("start_hour", 9),
+        "end_hour": p.get("availability", {}).get("end_hour", 19),
+        "custom_schedule": p.get("custom_schedule", {})
+    }
+
+
+# ==================== FILE UPLOAD ROUTES ====================
+
+@api_router.post("/barbers/portfolio/upload")
+async def upload_portfolio_image(request: Request, file: UploadFile = File(...), description: str = Form("")):
+    user = await get_current_user(request)
+    if user["role"] != "barber":
+        raise HTTPException(status_code=403)
+
+    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+
+    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "jpg"
+    filename = f"{uuid.uuid4().hex[:12]}.{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    url = f"/api/uploads/{filename}"
+    item = {"image_id": f"img_{uuid.uuid4().hex[:8]}", "url": url, "description": description}
+    await db.users.update_one({"user_id": user["user_id"]}, {"$push": {"barber_profile.portfolio": item}})
+    return item
+
+@api_router.get("/uploads/{filename}")
+async def serve_upload(filename: str):
+    filepath = UPLOAD_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(filepath)
 
 
 # ==================== SEED DATA ====================
