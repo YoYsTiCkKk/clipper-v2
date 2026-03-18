@@ -21,11 +21,12 @@ const statusMap = {
 
 export default function ClientDashboard() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, loading: authLoading } = useAuth();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { navigate("/auth"); return; }
     if (user.role === "barber") { navigate("/dashboard"); return; }
     (async () => {
@@ -35,7 +36,7 @@ export default function ClientDashboard() {
       } catch { /* ignore */ }
       finally { setLoading(false); }
     })();
-  }, [user, navigate]);
+  }, [user, navigate, authLoading]);
 
   const handleCancel = async (bookingId) => {
     try {

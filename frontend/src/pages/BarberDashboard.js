@@ -25,7 +25,7 @@ const statusMap = {
 
 export default function BarberDashboard() {
   const navigate = useNavigate();
-  const { user, logout, checkAuth } = useAuth();
+  const { user, logout, checkAuth, loading: authLoading } = useAuth();
   const [barberData, setBarberData] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,10 +63,11 @@ export default function BarberDashboard() {
   }, []);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { navigate("/auth"); return; }
     if (user.role !== "barber") { navigate("/bookings"); return; }
     fetchData();
-  }, [user, navigate, fetchData]);
+  }, [user, navigate, fetchData, authLoading]);
 
   const handleAddService = async () => {
     if (!newService.name || !newService.price) return;

@@ -19,7 +19,7 @@ export default function BookingPage() {
   const { barberId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const [barber, setBarber] = useState(null);
   const [selectedService, setSelectedService] = useState(location.state?.serviceId || null);
@@ -27,11 +27,12 @@ export default function BookingPage() {
   const [selectedTime, setSelectedTime] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("app");
   const [availableSlots, setAvailableSlots] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { navigate("/auth"); return; }
     (async () => {
       try {
@@ -41,9 +42,9 @@ export default function BookingPage() {
           setSelectedService(res.data.barber_profile.services[0].service_id);
         }
       } catch { navigate("/explore"); }
-      finally { setLoading(false); }
+      finally { setPageLoading(false); }
     })();
-  }, [barberId, navigate, user, selectedService]);
+  }, [barberId, navigate, user, selectedService, authLoading]);
 
   useEffect(() => {
     if (!selectedDate || !barberId) return;
@@ -55,7 +56,7 @@ export default function BookingPage() {
       .finally(() => setSlotsLoading(false));
   }, [selectedDate, barberId]);
 
-  if (loading) {
+  if (authLoading || pageLoading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
