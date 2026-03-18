@@ -174,7 +174,7 @@ export default function BarberProfilePage() {
                   className="relative aspect-square rounded-xl overflow-hidden group"
                 >
                   <img
-                    src={img.url}
+                    src={img.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${img.url}` : img.url}
                     alt={img.description}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                   />
@@ -252,7 +252,7 @@ export default function BarberProfilePage() {
           onClick={() => setSelectedImage(null)}
         >
           <img
-            src={selectedImage.url}
+            src={selectedImage.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${selectedImage.url}` : selectedImage.url}
             alt={selectedImage.description}
             className="max-w-full max-h-[80vh] object-contain rounded-xl"
           />

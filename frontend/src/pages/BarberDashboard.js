@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Scissors, Calendar, Clock, Plus, Trash2, LogOut,
   MapPin, Phone, User, Image as ImageIcon, Save, Loader2, Check, X,
-  Upload, CalendarDays
+  Upload, CalendarDays, Star, MessageSquare
 } from "lucide-react";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -30,6 +30,7 @@ export default function BarberDashboard() {
   const { user, logout, checkAuth, loading: authLoading } = useAuth();
   const [barberData, setBarberData] = useState(null);
   const [bookings, setBookings] = useState([]);
+  const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Service form
@@ -52,12 +53,14 @@ export default function BarberDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [barberRes, bookingsRes] = await Promise.all([
+      const [barberRes, bookingsRes, reviewsRes] = await Promise.all([
         axios.get(`${API}/auth/me`, { withCredentials: true }),
         axios.get(`${API}/bookings`, { withCredentials: true }),
+        axios.get(`${API}/barbers/${user?.user_id}/reviews`, { withCredentials: true }).catch(() => ({ data: [] })),
       ]);
       setBarberData(barberRes.data);
       setBookings(bookingsRes.data);
+      setReviews(reviewsRes.data);
       const bp = barberRes.data.barber_profile || {};
       const coords = bp.location?.coordinates || [0, 0];
       setProfileForm({
@@ -65,13 +68,15 @@ export default function BarberDashboard() {
         bio: bp.bio || "",
         address: bp.address || "",
         phone: barberRes.data.phone || "",
-        latitude: coords[1] !== 0 ? String(coords[1]) : "",
-        longitude: coords[0] !== 0 ? String(coords[0]) : "",
+        lat: coords[1] !== 0 ? String(coords[1]) : "",
+        lng: coords[0] !== 0 ? String(coords[0]) : "",
+        offersHomeService: bp.offers_home_service || false,
+        homeServiceFee: bp.home_service_fee !== undefined ? String(bp.home_service_fee) : ""
       });
       setCustomSchedule(bp.custom_schedule || {});
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -164,16 +169,31 @@ export default function BarberDashboard() {
     } catch { toast.error("Error al actualizar disponibilidad"); }
   };
 
+  const handleDeleteAvailability = async (dateStr) => {
+    try {
+      await axios.delete(`${API}/barbers/availability/custom/${dateStr}`, { withCredentials: true });
+      toast.success(`Disponibilidad para ${dateStr} eliminada`);
+      setCustomSchedule((prev) => {
+        const updated = { ...prev };
+        delete updated[dateStr];
+        return updated;
+      });
+    } catch { toast.error("Error al eliminar disponibilidad"); }
+  };
+
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
       await axios.put(`${API}/barbers/profile`, {
         name: profileForm.name || undefined,
-        bio: profileForm.bio || undefined,
-        address: profileForm.address || undefined,
         phone: profileForm.phone || undefined,
-        latitude: profileForm.latitude ? parseFloat(profileForm.latitude) : undefined,
-        longitude: profileForm.longitude ? parseFloat(profileForm.longitude) : undefined,
+        barber_profile: {
+          bio: profileForm.bio || undefined,
+          address: profileForm.address || undefined,
+          location: (profileForm.lat && profileForm.lng) ? { type: "Point", coordinates: [parseFloat(profileForm.lng), parseFloat(profileForm.lat)] } : undefined,
+          offers_home_service: profileForm.offersHomeService,
+          home_service_fee: profileForm.offersHomeService ? (parseFloat(profileForm.homeServiceFee) || 0) : undefined
+        }
       }, { withCredentials: true });
       toast.success("Perfil actualizado");
       await checkAuth();
@@ -255,6 +275,7 @@ export default function BarberDashboard() {
             <TabsTrigger value="portfolio" data-testid="tab-portfolio" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Portfolio</TabsTrigger>
             <TabsTrigger value="availability" data-testid="tab-availability" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Horarios</TabsTrigger>
             <TabsTrigger value="profile" data-testid="tab-profile" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Perfil</TabsTrigger>
+            <TabsTrigger value="reviews" data-testid="tab-reviews" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Reseñas</TabsTrigger>
           </TabsList>
 
           {/* BOOKINGS TAB */}
@@ -403,11 +424,16 @@ export default function BarberDashboard() {
                   {Object.entries(customSchedule).sort().map(([date, cfg]) => (
                     <div key={date} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
                       <span className="text-sm text-white">{date}</span>
-                      {cfg.available ? (
-                        <Badge className="bg-green-500/10 text-green-500 border-0 text-xs">{cfg.start_hour}:00 - {cfg.end_hour}:00</Badge>
-                      ) : (
-                        <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No disponible</Badge>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {cfg.available ? (
+                          <Badge className="bg-green-500/10 text-green-500 border-0 text-xs">{cfg.start_hour}:00 - {cfg.end_hour}:00</Badge>
+                        ) : (
+                          <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No disponible</Badge>
+                        )}
+                        <button onClick={() => handleDeleteAvailability(date)} className="text-zinc-600 hover:text-red-400 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -439,14 +465,78 @@ export default function BarberDashboard() {
                 <Label className="text-zinc-300 text-sm mb-1.5 block">Ubicacion (coordenadas)</Label>
                 <p className="text-xs text-zinc-500 mb-2">Introduce latitud y longitud para aparecer en el mapa</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input data-testid="profile-latitude" type="number" step="any" placeholder="Latitud (ej: 40.4168)" value={profileForm.latitude} onChange={(e) => setProfileForm({ ...profileForm, latitude: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
-                  <Input data-testid="profile-longitude" type="number" step="any" placeholder="Longitud (ej: -3.7038)" value={profileForm.longitude} onChange={(e) => setProfileForm({ ...profileForm, longitude: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                  <Input data-testid="profile-latitude" type="number" step="any" placeholder="Latitud (ej: 40.4168)" value={profileForm.lat} onChange={(e) => setProfileForm({ ...profileForm, lat: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                  <Input data-testid="profile-longitude" type="number" step="any" placeholder="Longitud (ej: -3.7038)" value={profileForm.lng} onChange={(e) => setProfileForm({ ...profileForm, lng: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
                 </div>
               </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={profileForm.offersHomeService}
+                    onChange={(e) => setProfileForm({ ...profileForm, offersHomeService: e.target.checked })}
+                    className="w-5 h-5 rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-amber-500/20"
+                  />
+                  <span className="text-sm font-medium text-white">Ofrezco cortes a domicilio</span>
+                </label>
+                {profileForm.offersHomeService && (
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Tarifa de desplazamiento (€)</label>
+                    <input
+                      type="number"
+                      value={profileForm.homeServiceFee}
+                      onChange={(e) => setProfileForm({ ...profileForm, homeServiceFee: e.target.value })}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 outline-none"
+                      step="0.5"
+                    />
+                  </div>
+                )}
+              </div>
+
               <Button data-testid="save-profile-btn" onClick={handleSaveProfile} disabled={saving} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
                 {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil</>}
               </Button>
             </div>
+          </TabsContent>
+
+          {/* REVIEWS TAB */}
+          <TabsContent value="reviews" className="mt-4 space-y-4">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-4" style={{ fontFamily: "Syne" }}>
+              <MessageSquare className="w-5 h-5 text-amber-500" />
+              Reseñas ({reviews.length})
+            </h3>
+            {reviews.length === 0 ? (
+              <p className="text-zinc-500 text-sm text-center py-8">Aún no tienes reseñas.</p>
+            ) : (
+              <div className="space-y-3">
+                {reviews.map((rev) => (
+                  <div key={rev.review_id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        {rev.client_picture ? (
+                          <img src={rev.client_picture} alt="" className="w-8 h-8 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-400">
+                            {rev.client_name?.[0]}
+                          </div>
+                        )}
+                        <span className="text-sm font-medium text-white">{rev.client_name}</span>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star key={s} className={`w-3 h-3 ${s <= rev.rating ? "text-amber-500 fill-amber-500" : "text-zinc-600"}`} />
+                        ))}
+                      </div>
+                    </div>
+                    {rev.comment && <p className="text-sm text-zinc-400">{rev.comment}</p>}
+                    <p className="text-[10px] text-zinc-600 mt-2">
+                      {new Date(rev.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

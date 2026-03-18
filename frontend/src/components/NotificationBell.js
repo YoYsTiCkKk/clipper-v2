@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Bell, X, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -37,9 +38,24 @@ export function NotificationBell() {
 
   useEffect(() => {
     fetchUnread();
-    const interval = setInterval(fetchUnread, 30000);
-    return () => clearInterval(interval);
-  }, [fetchUnread]);
+    fetchAll();
+
+    const wsUrl = API.replace('http', 'ws') + '/ws/notifications';
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const notif = JSON.parse(event.data);
+        setUnread((prev) => prev + 1);
+        setNotifications((prev) => [notif, ...prev]);
+        toast(notif.title, { description: notif.message });
+      } catch (e) {}
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [fetchUnread, fetchAll]);
 
   const handleOpen = () => {
     setOpen(!open);

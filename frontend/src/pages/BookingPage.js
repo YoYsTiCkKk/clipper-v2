@@ -25,7 +25,9 @@ export default function BookingPage() {
   const [selectedService, setSelectedService] = useState(location.state?.serviceId || null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState("app");
+  const [paymentMethod, setPaymentMethod] = useState("app"); // 'app' or 'cash'
+  const [locationType, setLocationType] = useState("barbershop"); // 'barbershop' or 'home'
+  const [verifying, setVerifying] = useState(false);
   const [availableSlots, setAvailableSlots] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -70,7 +72,14 @@ export default function BookingPage() {
   const services = profile.services || [];
   const currentService = services.find((s) => s.service_id === selectedService);
   const servicePrice = currentService?.price || 0;
-  const total = servicePrice + TRANSPORT_FEE + MANAGEMENT_FEE;
+  
+  const offersHomeService = profile.offers_home_service || false;
+  const transportFee = locationType === "home" ? parseFloat(profile.home_service_fee || 2.5) : 0;
+  
+  const subtotal = servicePrice + transportFee + MANAGEMENT_FEE;
+  const userCredits = user?.credits || 0;
+  const discount = Math.min(userCredits, subtotal);
+  const total = subtotal - discount;
 
   const handleConfirm = async () => {
     if (!selectedService || !selectedDate || !selectedTime) {
@@ -83,21 +92,17 @@ export default function BookingPage() {
       const res = await axios.post(`${API}/bookings`, {
         barber_id: barberId,
         service_id: selectedService,
-        date: dateStr,
+        date: selectedDate,
         time: selectedTime,
         payment_method: paymentMethod,
+        location_type: locationType
       }, { withCredentials: true });
 
-      if (paymentMethod === "app") {
-        const checkout = await axios.post(`${API}/payments/checkout`, {
-          booking_id: res.data.booking_id,
-          origin_url: window.location.origin,
-        }, { withCredentials: true });
-        window.location.href = checkout.data.url;
-      } else {
-        toast.success("Reserva confirmada");
-        navigate("/bookings");
-      }
+      const checkout = await axios.post(`${API}/payments/checkout`, {
+        booking_id: res.data.booking_id,
+        origin_url: window.location.origin,
+      }, { withCredentials: true });
+      window.location.href = checkout.data.url;
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error al crear la reserva");
     } finally {
@@ -267,7 +272,7 @@ export default function BookingPage() {
           </div>
           {paymentMethod === "cash" && (
             <p className="text-xs text-zinc-500 mt-2">
-              Pagaras el servicio en efectivo al barbero. Los gastos de transporte y gestion se cobran a traves de la app.
+              Pagarás el servicio en efectivo al barbero. Se te pedirá una tarjeta como garantía (Solo para penalización del 30% en caso de cancelaciones sorpresa o no-show).
             </p>
           )}
           <div className="mt-2 flex flex-wrap gap-2">
@@ -290,12 +295,18 @@ export default function BookingPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-400">Transporte</span>
-              <span className="text-white">{TRANSPORT_FEE.toFixed(2)}€</span>
+              <span className="text-white">{transportFee.toFixed(2)}€</span>
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-400">Gestion</span>
               <span className="text-white">{MANAGEMENT_FEE.toFixed(2)}€</span>
             </div>
+            {discount > 0 && (
+              <div className="flex justify-between text-green-500">
+                <span>Crédito aplicado</span>
+                <span>-{discount.toFixed(2)}€</span>
+              </div>
+            )}
             <div className="h-px bg-zinc-800 my-2" />
             <div className="flex justify-between">
               <span className="text-white font-bold">Total</span>
@@ -305,7 +316,7 @@ export default function BookingPage() {
             </div>
             {paymentMethod === "cash" && (
               <p className="text-xs text-zinc-500 mt-1">
-                Cobro en app: {(TRANSPORT_FEE + MANAGEMENT_FEE).toFixed(2)}€ · En efectivo: {servicePrice.toFixed(2)}€
+                Cobro en app: {Math.max(0, transportFee + MANAGEMENT_FEE - discount).toFixed(2)}€ · En efectivo: {servicePrice.toFixed(2)}€
               </p>
             )}
           </div>

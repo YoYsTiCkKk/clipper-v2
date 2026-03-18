@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -15,6 +15,8 @@ import random
 from datetime import datetime, timezone, timedelta
 import httpx
 from passlib.hash import bcrypt
+from PIL import Image
+import io
 from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout, CheckoutSessionRequest
 )
@@ -39,6 +41,77 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+logger = logging.getLogger(__name__)
+
+
+# ==================== WEBSOCKET MANAGER ====================
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = []
+        self.active_connections[user_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, user_id: str):
+        if user_id in self.active_connections:
+            if websocket in self.active_connections[user_id]:
+                self.active_connections[user_id].remove(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+
+    async def send_personal_message(self, message: dict, user_id: str):
+        if user_id in self.active_connections:
+            disconnected = []
+            for connection in self.active_connections[user_id]:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    disconnected.append(connection)
+            for d in disconnected:
+                self.disconnect(d, user_id)
+
+manager = ConnectionManager()
+
+
+# ==================== FEED ====================
+
+@api_router.get("/feed")
+async def get_global_feed():
+    barbers = await db.users.find({"role": "barber"}, {"user_id": 1, "name": 1, "avatar": 1, "barber_profile.portfolio": 1}).to_list(100)
+    feed = []
+    for b in barbers:
+        portfolio = b.get("barber_profile", {}).get("portfolio", [])
+        for item in portfolio:
+            feed.append({
+                "barber_id": b["user_id"],
+                "barber_name": b["name"],
+                "barber_avatar": b.get("avatar"),
+                "image_id": item.get("image_id"),
+                "url": item.get("url"),
+                "description": item.get("description", "")
+            })
+    random.shuffle(feed)
+    return feed
+
+class SaveStyleRequest(BaseModel):
+    image_id: str
+
+@api_router.post("/users/saved-styles")
+async def save_style(req: SaveStyleRequest, request: Request):
+    user = await get_current_user(request)
+    await db.users.update_one({"user_id": user["user_id"]}, {"$addToSet": {"saved_styles": req.image_id}})
+    return {"message": "Estilo guardado"}
+
+@api_router.delete("/users/saved-styles/{image_id}")
+async def remove_saved_style(image_id: str, request: Request):
+    user = await get_current_user(request)
+    await db.users.update_one({"user_id": user["user_id"]}, {"$pull": {"saved_styles": image_id}})
+    return {"message": "Estilo eliminado"}
 
 # ==================== MODELS ====================
 
@@ -74,8 +147,8 @@ class BookingCreate(BaseModel):
     service_id: str
     date: str
     time: str
-    payment_method: str
-
+    payment_method: str  # 'card' or 'cash'
+    location_type: Optional[str] = "barbershop"  # 'barbershop' or 'home'
 class CheckoutRequest(BaseModel):
     booking_id: str
     origin_url: str
@@ -146,13 +219,16 @@ async def set_session(response: Response, user_id: str) -> str:
     return token
 
 async def create_notification(user_id: str, notif_type: str, title: str, message: str, metadata: dict = None):
-    await db.notifications.insert_one({
+    notif = {
         "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
         "user_id": user_id, "type": notif_type,
         "title": title, "message": message,
         "read": False, "metadata": metadata or {},
         "created_at": datetime.now(timezone.utc).isoformat()
-    })
+    }
+    await db.notifications.insert_one(notif)
+    notif.pop("_id", None)
+    await manager.send_personal_message(notif, user_id)
 
 def generate_referral_code():
     chars = string.ascii_uppercase + string.digits
@@ -335,7 +411,7 @@ async def get_available_slots(barber_id: str, date: str):
             slots.append(f"{h:02d}:{m:02d}")
 
     bookings = await db.bookings.find(
-        {"barber_id": barber_id, "date": date, "status": {"$in": ["pending", "confirmed"]}},
+        {"barber_id": barber_id, "date": date, "time": {"$in": slots}, "status": {"$in": ["pending", "confirmed"]}},
         {"_id": 0, "time": 1}
     ).to_list(100)
     booked = {b["time"] for b in bookings}
@@ -448,8 +524,27 @@ async def create_booking(data: BookingCreate, request: Request):
     if existing:
         raise HTTPException(status_code=409, detail="Horario no disponible")
 
+    # Determine fees based on location type
     service_price = float(service["price"])
-    total = service_price + TRANSPORT_FEE + MANAGEMENT_FEE
+    location_type = data.location_type
+    
+    transport_fee = 0.0
+    if location_type == "home":
+        # Check if barber offers home service and get fee
+        profile = barber.get("barber_profile", {})
+        if not profile.get("offers_home_service", False):
+            raise HTTPException(status_code=400, detail="Este barbero no ofrece servicio a domicilio")
+        transport_fee = float(profile.get("home_service_fee", TRANSPORT_FEE))
+
+    subtotal = service_price + transport_fee + MANAGEMENT_FEE
+    
+    user_credits = user.get("credits", 0.0)
+    discount = min(user_credits, subtotal)
+    total = subtotal - discount
+    new_credits = user_credits - discount
+    
+    if discount > 0:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"credits": new_credits}})
 
     booking_id = f"book_{uuid.uuid4().hex[:10]}"
     booking = {
@@ -458,11 +553,13 @@ async def create_booking(data: BookingCreate, request: Request):
         "barber_id": data.barber_id, "barber_name": barber["name"],
         "service_id": data.service_id, "service_name": service["name"],
         "service_price": service_price, "date": data.date, "time": data.time,
-        "status": "confirmed" if data.payment_method == "cash" else "pending",
+        "status": "pending",
         "payment_method": data.payment_method,
-        "transport_fee": TRANSPORT_FEE, "management_fee": MANAGEMENT_FEE,
+        "location_type": location_type,
+        "transport_fee": transport_fee, "management_fee": MANAGEMENT_FEE,
+        "subtotal": subtotal, "discount_applied": discount,
         "total_amount": total,
-        "payment_status": "cash" if data.payment_method == "cash" else "pending",
+        "payment_status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.bookings.insert_one(booking)
@@ -534,8 +631,8 @@ async def create_checkout(data: CheckoutRequest, request: Request):
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
     if booking["client_id"] != user["user_id"]:
         raise HTTPException(status_code=403)
-    if booking["payment_method"] != "app":
-        raise HTTPException(status_code=400, detail="Esta reserva se paga en efectivo")
+    if booking["payment_method"] not in ["app", "cash"]:
+        raise HTTPException(status_code=400, detail="Este método de pago no es válido")
 
     api_key = os.environ.get('STRIPE_API_KEY')
     if not api_key:
@@ -548,10 +645,11 @@ async def create_checkout(data: CheckoutRequest, request: Request):
     cancel_url = f"{data.origin_url}/bookings"
     amount = float(booking["total_amount"])
 
+    setup_mode = "true" if booking["payment_method"] == "cash" else "false"
     session = await stripe_checkout.create_checkout_session(CheckoutSessionRequest(
         amount=amount, currency="eur",
         success_url=success_url, cancel_url=cancel_url,
-        metadata={"booking_id": data.booking_id, "user_id": user["user_id"]}
+        metadata={"booking_id": data.booking_id, "user_id": user["user_id"], "setup_intent": setup_mode}
     ))
 
     await db.payment_transactions.insert_one({
@@ -693,6 +791,24 @@ async def mark_all_read(request: Request):
     await db.notifications.update_many({"user_id": user["user_id"], "read": False}, {"$set": {"read": True}})
     return {"message": "ok"}
 
+@app.websocket("/api/ws/notifications")
+async def websocket_endpoint(websocket: WebSocket):
+    session_token = websocket.cookies.get("session_token")
+    if not session_token:
+        await websocket.close(code=1008)
+        return
+    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session:
+        await websocket.close(code=1008)
+        return
+    user_id = session["user_id"]
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id)
+
 
 # ==================== REFERRAL ROUTES ====================
 
@@ -754,6 +870,17 @@ async def set_custom_availability(data: AvailabilityDay, request: Request):
     )
     return {"message": f"Disponibilidad para {data.date} actualizada"}
 
+@api_router.delete("/barbers/availability/custom/{date}")
+async def delete_custom_availability(date: str, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "barber":
+        raise HTTPException(status_code=403)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$unset": {f"barber_profile.custom_schedule.{date}": ""}}
+    )
+    return {"message": f"Disponibilidad para {date} eliminada"}
+
 @api_router.get("/barbers/{barber_id}/availability")
 async def get_barber_availability(barber_id: str):
     barber = await db.users.find_one({"user_id": barber_id, "role": "barber"}, {"_id": 0})
@@ -780,12 +907,26 @@ async def upload_portfolio_image(request: Request, file: UploadFile = File(...),
     if file.content_type not in allowed:
         raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
 
-    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "jpg"
-    filename = f"{uuid.uuid4().hex[:12]}.{ext}"
-    filepath = UPLOAD_DIR / filename
-    with open(filepath, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    
+    try:
+        image_data = await file.read()
+        image = Image.open(io.BytesIO(image_data))
+        if image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
+            
+        if image.width > 1080:
+            ratio = 1080 / float(image.width)
+            new_height = int((float(image.height) * float(ratio)))
+            image = image.resize((1080, new_height), Image.Resampling.LANCZOS)
+            
+        filename = f"{uuid.uuid4().hex}.webp"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        image.save(filepath, "WEBP", quality=80)
+    except Exception as e:
+        logger.error(f"Image processing error: {e}")
+        raise HTTPException(status_code=400, detail="Formato de imagen inválido")
+        
     url = f"/api/uploads/{filename}"
     item = {"image_id": f"img_{uuid.uuid4().hex[:8]}", "url": url, "description": description}
     await db.users.update_one({"user_id": user["user_id"]}, {"$push": {"barber_profile.portfolio": item}})

@@ -40,7 +40,7 @@ export default function MapSearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({ minRating: "", maxPrice: "", serviceType: "" });
+  const [filters, setFilters] = useState({ minRating: "", minPrice: "", maxPrice: "", serviceType: "" });
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -56,6 +56,7 @@ export default function MapSearchPage() {
       try {
         const params = { lat: center[0], lng: center[1], radius: 50000 };
         if (filters.minRating) params.min_rating = parseFloat(filters.minRating);
+        if (filters.minPrice) params.min_price = parseFloat(filters.minPrice);
         if (filters.maxPrice) params.max_price = parseFloat(filters.maxPrice);
         if (filters.serviceType) params.service_type = filters.serviceType;
         const res = await axios.get(`${API}/barbers`, { params });
@@ -126,18 +127,31 @@ export default function MapSearchPage() {
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">Precio max.</label>
-                <select
-                  data-testid="filter-price"
-                  value={filters.maxPrice}
-                  onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-2"
-                >
-                  <option value="">Todos</option>
-                  <option value="15">Hasta 15€</option>
-                  <option value="25">Hasta 25€</option>
-                  <option value="40">Hasta 40€</option>
-                </select>
+                <label className="text-[10px] text-zinc-500 block mb-1">Precio</label>
+                <div className="flex gap-1">
+                  <select
+                    data-testid="filter-min-price"
+                    value={filters.minPrice}
+                    onChange={(e) => setFilters({...filters, minPrice: e.target.value})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-1"
+                  >
+                    <option value="">Min</option>
+                    <option value="10">10€</option>
+                    <option value="20">20€</option>
+                    <option value="30">30€</option>
+                  </select>
+                  <select
+                    data-testid="filter-max-price"
+                    value={filters.maxPrice}
+                    onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-1"
+                  >
+                    <option value="">Max</option>
+                    <option value="15">15€</option>
+                    <option value="25">25€</option>
+                    <option value="40">40€</option>
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="text-[10px] text-zinc-500 block mb-1">Servicio</label>
