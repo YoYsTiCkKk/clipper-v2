@@ -1,34 +1,166 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* ===== Leaflet Map Dark Theme ===== */
+.leaflet-container {
+    background: #09090b !important;
+    font-family: 'Manrope', sans-serif;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.leaflet-popup-content-wrapper {
+    background: #18181b !important;
+    color: #fafafa !important;
+    border-radius: 16px !important;
+    border: 1px solid #27272a !important;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5) !important;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.leaflet-popup-tip {
+    background: #18181b !important;
 }
 
-.App-link {
-    color: #61dafb;
+.leaflet-popup-close-button {
+    color: #a1a1aa !important;
 }
 
-@keyframes App-logo-spin {
+.leaflet-popup-close-button:hover {
+    color: #f59e0b !important;
+}
+
+.leaflet-control-zoom a {
+    background: #18181b !important;
+    color: #fafafa !important;
+    border-color: #27272a !important;
+}
+
+.leaflet-control-zoom a:hover {
+    background: #27272a !important;
+}
+
+/* ===== Barber Map Markers ===== */
+.barber-marker-wrap {
+    background: none !important;
+    border: none !important;
+}
+
+.barber-marker {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 3px solid #f59e0b;
+    overflow: hidden;
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.barber-marker:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 25px rgba(245, 158, 11, 0.6);
+}
+
+.barber-marker img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeInUp {
     from {
-        transform: rotate(0deg);
+        opacity: 0;
+        transform: translateY(20px);
     }
     to {
-        transform: rotate(360deg);
+        opacity: 1;
+        transform: translateY(0);
     }
+}
+
+@keyframes slideInBottom {
+    from {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse-amber {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+    }
+}
+
+.animate-fade-in-up {
+    animation: fadeInUp 0.5s ease forwards;
+}
+
+.animate-slide-in-bottom {
+    animation: slideInBottom 0.4s ease forwards;
+}
+
+.animate-pulse-amber {
+    animation: pulse-amber 2s infinite;
+}
+
+/* ===== Stagger delays ===== */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+
+/* ===== Glassmorphism ===== */
+.glass {
+    background: rgba(24, 24, 27, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+/* ===== Hero Background ===== */
+.hero-bg {
+    background-image: url('https://images.unsplash.com/photo-1723101917533-4fc9149c3684?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBiYXJiZXIlMjBzaG9wJTIwaW50ZXJpb3IlMjBkYXJrJTIwbW9vZHl8ZW58MHx8fHwxNzczODIxOTI1fDA&ixlib=rb-4.1.0&q=85');
+    background-size: cover;
+    background-position: center;
+}
+
+/* ===== Calendar Dark Theme ===== */
+.rdp {
+    --rdp-accent-color: #f59e0b !important;
+    --rdp-background-color: #27272a !important;
+}
+
+.rdp-day_selected {
+    background-color: #f59e0b !important;
+    color: #000 !important;
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #09090b;
+}
+::-webkit-scrollbar-thumb {
+    background: #27272a;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #3f3f46;
+}
+
+/* ===== Time Slot Grid ===== */
+.time-slot {
+    transition: all 0.15s ease;
+}
+.time-slot:hover {
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+.time-slot.selected {
+    background-color: #f59e0b;
+    color: #000;
+    border-color: #f59e0b;
 }
