@@ -1,0 +1,170 @@
+{
+  "brand_identity": {
+    "name": "Clipper",
+    "theme": "Modern Noir Barber",
+    "core_concept": "Uber Eats for Barbers - Professional, Edgy, Accessible",
+    "target_audience": "Young adults (18-45) in Spain",
+    "language": "Spanish (es-ES)"
+  },
+  "typography": {
+    "fonts": {
+      "heading": {
+        "family": "Syne",
+        "url": "https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&display=swap",
+        "fallback": "sans-serif",
+        "usage": "All headings (h1-h4), Hero text, Price tags"
+      },
+      "body": {
+        "family": "Manrope",
+        "url": "https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600&display=swap",
+        "fallback": "sans-serif",
+        "usage": "Paragraphs, UI labels, Inputs, Data tables"
+      }
+    },
+    "scale": {
+      "h1": "text-4xl md:text-6xl font-extrabold tracking-tight",
+      "h2": "text-3xl md:text-4xl font-bold tracking-tight",
+      "h3": "text-2xl font-bold",
+      "body": "text-base leading-relaxed text-zinc-400",
+      "caption": "text-sm text-zinc-500 font-medium"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": {
+        "default": "#09090b",
+        "description": "Zinc 950 - Deepest void, not pure black"
+      },
+      "surface": {
+        "default": "#18181b",
+        "active": "#27272a",
+        "description": "Zinc 900/800 - Cards, Modals, Sheets"
+      },
+      "primary": {
+        "default": "#f59e0b",
+        "hover": "#d97706",
+        "foreground": "#000000",
+        "description": "Amber 500 - Liquid Gold / Whiskey. Used for 'Book Now', Price, Active States"
+      },
+      "secondary": {
+        "default": "#e4e4e7",
+        "hover": "#d4d4d8",
+        "foreground": "#18181b",
+        "description": "Zinc 200 - Sharp Steel. Used for secondary actions, tools, filters"
+      },
+      "accent": {
+        "default": "#27272a",
+        "glow": "rgba(245, 158, 11, 0.15)",
+        "description": "Zinc 800 - Subtle borders, dividers"
+      },
+      "destructive": {
+        "default": "#ef4444",
+        "description": "Red 500 - Cancellation, Errors"
+      }
+    },
+    "gradients": {
+      "hero": "radial-gradient(circle at center, rgba(245,158,11,0.15) 0%, rgba(9,9,11,0) 70%)",
+      "glass": "linear-gradient(180deg, rgba(24,24,27,0.7) 0%, rgba(9,9,11,0.8) 100%)"
+    }
+  },
+  "visual_enhancers": {
+    "radius": {
+      "default": "rounded-xl",
+      "button": "rounded-full",
+      "card": "rounded-2xl"
+    },
+    "shadows": {
+      "glow": "0 0 20px -5px rgba(245, 158, 11, 0.3)",
+      "float": "0 10px 30px -10px rgba(0, 0, 0, 0.5)"
+    },
+    "textures": {
+      "noise": "bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"
+    },
+    "animations": {
+      "hover": "transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-lg",
+      "tap": "active:scale-95 transition-transform duration-100"
+    }
+  },
+  "layout": {
+    "container": "container mx-auto px-4 md:px-6 max-w-7xl",
+    "spacing": {
+      "section": "py-16 md:py-24",
+      "element": "gap-4 md:gap-6"
+    },
+    "grid_strategy": {
+      "marketing": "grid grid-cols-1 md:grid-cols-12 gap-6",
+      "dashboard": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4",
+      "mobile_list": "flex flex-col gap-4"
+    }
+  },
+  "components": {
+    "BarberCard": {
+      "structure": "Horizontal card (mobile) / Vertical (desktop). Image left/top (aspect-square). Content right/bottom.",
+      "features": "Rating badge (Star icon + 4.8), Location distance (1.2km), 'Book' button (Pill shape).",
+      "style": "bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 transition-colors"
+    },
+    "MapInterface": {
+      "provider": "Leaflet + OpenStreetMap",
+      "style_note": "MUST use a dark tile provider or CSS filter. Recommended: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'",
+      "marker": "Circular avatar with Amber ring border-2. Selected state: Pulse animation."
+    },
+    "BookingSheet": {
+      "type": "Shadcn Drawer (Mobile) / Dialog (Desktop)",
+      "content": "Service selection (Radio group), Date Picker (Calendar), Time Slots (Grid of pill buttons).",
+      "payment": "Toggle between 'Pay in App' (Stripe) and 'Pay Cash'."
+    },
+    "BottomNav": {
+      "style": "Fixed bottom, Glassmorphism (backdrop-blur-xl), height-16, 4 icons (Search, Bookings, Profile, Menu).",
+      "active_state": "Icon turns Amber-500, small dot indicator below."
+    }
+  },
+  "image_urls": {
+    "hero_backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1723101917533-4fc9149c3684?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBiYXJiZXIlMjBzaG9wJTIwaW50ZXJpb3IlMjBkYXJrJTIwbW9vZHl8ZW58MHx8fHwxNzczODIxOTI1fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Dark moody barber shop interior with red chairs"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1546641082-f149d4c3c907?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBiYXJiZXIlMjBzaG9wJTIwaW50ZXJpb3IlMjBkYXJrJTIwbW9vZHl8ZW58MHx8fHwxNzczODIxOTI1fDA&ixlib=rb-4.1.0&q=85",
+        "description": "White neon barber signage on brick wall"
+      }
+    ],
+    "barber_portraits": [
+      {
+        "url": "https://images.unsplash.com/photo-1741345980697-f3c43eba44a0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHxjb29sJTIwYmFyYmVyJTIwcG9ydHJhaXQlMjB0YXR0b29zJTIwcHJvZmVzc2lvbmFsfGVufDB8fHx8MTc3MzgyMTkzOHww&ixlib=rb-4.1.0&q=85",
+        "description": "Cool barber standing near poles"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1607943917700-18ec6ff5a4c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwzfHxjb29sJTIwYmFyYmVyJTIwcG9ydHJhaXQlMjB0YXR0b29zJTIwcHJvZmVzc2lvbmFsfGVufDB8fHx8MTc3MzgyMTkzOHww&ixlib=rb-4.1.0&q=85",
+        "description": "Tattooed barber portrait"
+      }
+    ],
+    "service_examples": [
+      {
+        "url": "https://images.pexels.com/photos/12464838/pexels-photo-12464838.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Shaving with straight razor"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1659355751282-5ca7807af9e9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwyfHxtZW5zJTIwaGFpcmN1dCUyMHNraW4lMjBmYWRlJTIwbW9kZXJufGVufDB8fHx8MTc3MzgyMTkzOHww&ixlib=rb-4.1.0&q=85",
+        "description": "Modern skin fade haircut in action"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "1. SETUP: Install fonts 'Syne' and 'Manrope' in index.html immediately.",
+    "2. MAPS: Use 'react-leaflet'. CRITICAL: Add CSS filter 'brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7)' to the tile layer if using standard OSM, OR use the CartoDB Dark Matter URL provided.",
+    "3. ICONS: Use 'lucide-react' (default). For specialized barber icons (scissors, razor), fallback to generic icons styled creatively or use SVG paths if essential.",
+    "4. SHADCN: Customize the 'radius' in theme to 0.75rem. Force Dark Mode by default in class hierarchy.",
+    "5. LANGUAGE: All UI text must be in SPANISH (Booking -> Reservar, Barber -> Barbero, Price -> Precio).",
+    "6. PAYMENTS: Mock Stripe checkout with a clean credit card form styled in Zinc-900.",
+    "7. PROFILES: The barber profile should feel like a 'Digital Business Card'. High quality photos, clear price list."
+  ],
+  "universal_guidelines": [
+    "Do not use gradients for dark colors. Use solid Zinc-900/950.",
+    "Avoid centered layouts for text blocks. Use left-align with generous padding.",
+    "All interactive elements must have a :hover state that brightens the border or text.",
+    "Use 'sonner' for toasts.",
+    "Use named exports for components.",
+    "Add 'data-testid' to all interactive elements."
+  ]
+}
