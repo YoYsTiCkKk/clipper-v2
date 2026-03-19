@@ -9,12 +9,21 @@ export function Logo({ className }) {
       strokeLinejoin="round" 
       className={className}
     >
-      <path d="M7 4h10" />
-      <path d="M7 20h10" />
-      <path d="M9 4v16" />
-      <path d="M15 4v16" />
-      <path d="M9 8l6 3" />
-      <path d="M9 13l6 3" />
+      {/* Dientes de la cuchilla */}
+      <path d="M8 2v2" />
+      <path d="M10 2v2" />
+      <path d="M12 2v2" />
+      <path d="M14 2v2" />
+      <path d="M16 2v2" />
+      
+      {/* Base de la cuchilla */}
+      <path d="M7 4h10v3H7z" />
+      
+      {/* Cuerpo de la máquina */}
+      <rect x="6" y="7" width="12" height="14" rx="3" />
+      
+      {/* Botón / Slider de encendido */}
+      <line x1="12" y1="12" x2="12" y2="15" />
     </svg>
   );
 }
