@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Scissors, MapPin, Calendar, CreditCard, ChevronRight } from "lucide-react";
+import { Logo } from "@/components/Logo";
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ export default function LandingPage() {
             onClick={() => navigate("/")}
             className="flex items-center gap-2"
           >
-            <Scissors className="w-6 h-6 text-amber-500" />
+            <Logo className="w-6 h-6 text-amber-500" />
             <span className="text-xl font-bold text-white" style={{ fontFamily: 'Syne' }}>
               Clipper
             </span>
@@ -170,7 +171,7 @@ export default function LandingPage() {
       <footer className="py-8 border-t border-zinc-800">
         <div className="container mx-auto px-4 md:px-6 max-w-7xl flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Scissors className="w-5 h-5 text-amber-500" />
+            <Logo className="w-5 h-5 text-amber-500" />
             <span className="text-sm font-bold text-white" style={{ fontFamily: 'Syne' }}>Clipper</span>
           </div>
           <p className="text-xs text-zinc-500">2025 Clipper. Todos los derechos reservados.</p>

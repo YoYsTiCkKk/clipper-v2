@@ -12,6 +12,7 @@ import {
   MapPin, Phone, User, Image as ImageIcon, Save, Loader2, Check, X,
   Upload, CalendarDays, Star, MessageSquare
 } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import axios from "axios";
@@ -231,7 +232,7 @@ export default function BarberDashboard() {
       <div className="glass border-b border-zinc-800 sticky top-0 z-30">
         <div className="container mx-auto px-4 max-w-4xl flex items-center justify-between h-14">
           <div className="flex items-center gap-2">
-            <Scissors className="w-5 h-5 text-amber-500" />
+            <Logo className="w-5 h-5 text-amber-500" />
             <span className="text-lg font-bold text-white" style={{ fontFamily: "Syne" }}>
               Panel Barbero
             </span>

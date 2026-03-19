@@ -10,6 +10,7 @@ import {
   Calendar, Clock, MapPin, Scissors, LogOut,
   ChevronRight, Search, Gift, Copy, Star, Send
 } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import axios from "axios";
 
@@ -105,7 +106,7 @@ export default function ClientDashboard() {
       <div className="glass border-b border-zinc-800 sticky top-0 z-30">
         <div className="container mx-auto px-4 max-w-3xl flex items-center justify-between h-14">
           <div className="flex items-center gap-2">
-            <Scissors className="w-5 h-5 text-amber-500" />
+            <Logo className="w-5 h-5 text-amber-500" />
             <span className="text-lg font-bold text-white" style={{ fontFamily: "Syne" }}>Mis Reservas</span>
           </div>
           <div className="flex items-center gap-1">
@@ -251,7 +252,7 @@ export default function ClientDashboard() {
 
             {bookings.length === 0 && (
               <div className="text-center py-16">
-                <Scissors className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                <Logo className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
                 <p className="text-zinc-500">Aun no tienes reservas</p>
                 <Button data-testid="empty-explore-btn" onClick={() => navigate("/explore")} className="mt-4 rounded-full bg-amber-500 text-black hover:bg-amber-600">Buscar barberos</Button>
               </div>

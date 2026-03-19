@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Scissors, Mail, Lock, User, ArrowLeft } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import axios from "axios";
 
@@ -77,7 +78,7 @@ export default function AuthPage() {
 
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 mb-8">
-          <Scissors className="w-7 h-7 text-amber-500" />
+          <Logo className="w-7 h-7 text-amber-500" />
           <span className="text-2xl font-bold text-white" style={{ fontFamily: "Syne" }}>Clipper</span>
         </div>
 
