@@ -37,6 +37,13 @@ let webpackConfig = {
       '@': path.resolve(__dirname, 'src'),
     },
     configure: (webpackConfig) => {
+      // Allow relative imports from outside src/ (for the convex/ directory)
+      const scopePluginIndex = webpackConfig.resolve.plugins.findIndex(
+        ({ constructor }) => constructor && constructor.name === 'ModuleScopePlugin'
+      );
+      if (scopePluginIndex > -1) {
+        webpackConfig.resolve.plugins.splice(scopePluginIndex, 1);
+      }
 
       // Add ignored patterns to reduce watched directories
         webpackConfig.watchOptions = {

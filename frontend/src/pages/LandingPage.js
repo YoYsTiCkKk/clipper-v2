@@ -20,7 +20,7 @@ export default function LandingPage() {
           >
             <Logo className="w-6 h-6 text-amber-500" />
             <span className="text-xl font-bold text-white" style={{ fontFamily: 'Syne' }}>
-              Clipper
+              Trimmer
             </span>
           </button>
           <div className="flex items-center gap-3">
@@ -72,11 +72,11 @@ export default function LandingPage() {
               style={{ fontFamily: 'Syne' }}
             >
               Tu barbero,<br />
-              <span className="text-amber-500">donde tu quieras</span>
+              <span className="text-amber-500">donde tú quieras</span>
             </h1>
             <p className="text-base md:text-lg text-zinc-400 leading-relaxed mb-10 max-w-lg animate-fade-in-up stagger-1">
               Encuentra los mejores barberos cerca de ti. Reserva cita, elige tu servicio
-              y paga como prefieras. Asi de facil.
+              y paga como prefieras. Así de fácil.
             </p>
             <div className="flex flex-wrap gap-4 animate-fade-in-up stagger-2">
               <Button
@@ -107,24 +107,24 @@ export default function LandingPage() {
             className="text-3xl md:text-4xl font-bold tracking-tight text-white mb-16 text-left"
             style={{ fontFamily: 'Syne' }}
           >
-            Como funciona
+            Cómo funciona
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
             {[
               {
                 icon: MapPin,
                 title: "Busca",
-                desc: "Encuentra barberos disponibles cerca de tu ubicacion en el mapa interactivo.",
+                desc: "Encuentra barberos disponibles cerca de tu ubicación en el mapa interactivo.",
               },
               {
                 icon: Calendar,
                 title: "Reserva",
-                desc: "Elige el servicio que necesitas, selecciona dia y hora, y confirma tu cita.",
+                desc: "Elige el servicio que necesitas, selecciona día y hora, y confirma tu cita.",
               },
               {
                 icon: CreditCard,
                 title: "Paga",
-                desc: "Paga con tarjeta a traves de la app o en efectivo al barbero. Tu eliges.",
+                desc: "Paga con tarjeta a través de la app o en efectivo al barbero. Tú eliges.",
               },
             ].map((step, i) => (
               <div
@@ -151,10 +151,10 @@ export default function LandingPage() {
             className="text-3xl md:text-4xl font-bold tracking-tight text-white mb-6"
             style={{ fontFamily: 'Syne' }}
           >
-            Listo para encontrar<br />tu barbero ideal?
+            ¿Listo para encontrar<br />tu barbero ideal?
           </h2>
           <p className="text-zinc-400 mb-10 max-w-md mx-auto">
-            Unete a miles de personas que ya confian en Clipper para sus cortes.
+            Únete a miles de personas que ya confían en Trimmer para sus cortes.
           </p>
           <Button
             data-testid="cta-explore-btn"
@@ -172,9 +172,9 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 md:px-6 max-w-7xl flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Logo className="w-5 h-5 text-amber-500" />
-            <span className="text-sm font-bold text-white" style={{ fontFamily: 'Syne' }}>Clipper</span>
+            <span className="text-sm font-bold text-white" style={{ fontFamily: 'Syne' }}>Trimmer</span>
           </div>
-          <p className="text-xs text-zinc-500">2025 Clipper. Todos los derechos reservados.</p>
+          <p className="text-xs text-zinc-500">2025 Trimmer. Todos los derechos reservados.</p>
         </div>
       </footer>
     </div>

@@ -8,33 +8,18 @@ import {
   Star, MapPin, Clock, ArrowLeft, Phone, Scissors,
   CreditCard, ChevronRight, Image as ImageIcon, MessageSquare, Send
 } from "lucide-react";
-import axios from "axios";
-
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { useQuery } from "convex/react";
+import { api } from "../convex/_generated/api";
 
 export default function BarberProfilePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [barber, setBarber] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(null);
   const [reviews, setReviews] = useState([]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await axios.get(`${API}/barbers/${id}`);
-        setBarber(res.data);
-        const revRes = await axios.get(`${API}/barbers/${id}/reviews`);
-        setReviews(revRes.data);
-      } catch {
-        navigate("/explore");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [id, navigate]);
+  const barber = useQuery(api.users.getBarber, { barber_id: id });
+  const loading = barber === undefined;
 
   if (loading) {
     return (

@@ -10,9 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { BottomNav } from "@/components/BottomNav";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Search, Star, MapPin, Scissors, X, SlidersHorizontal } from "lucide-react";
-import axios from "axios";
-
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { useQuery } from "convex/react";
+import { api } from "../convex/_generated/api";
 
 function createBarberIcon(picture) {
   return L.divIcon({
@@ -51,24 +50,12 @@ export default function MapSearchPage() {
     }
   }, []);
 
+  const remoteBarbers = useQuery(api.users.getBarbers) || [];
+  
   useEffect(() => {
-    const fetchBarbers = async () => {
-      try {
-        const params = { lat: center[0], lng: center[1], radius: 50000 };
-        if (filters.minRating) params.min_rating = parseFloat(filters.minRating);
-        if (filters.minPrice) params.min_price = parseFloat(filters.minPrice);
-        if (filters.maxPrice) params.max_price = parseFloat(filters.maxPrice);
-        if (filters.serviceType) params.service_type = filters.serviceType;
-        const res = await axios.get(`${API}/barbers`, { params });
-        setBarbers(res.data);
-      } catch (err) {
-        console.error("Error loading barbers:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchBarbers();
-  }, [center, filters]);
+    setBarbers(remoteBarbers);
+    setLoading(false);
+  }, [remoteBarbers]);
 
   const filteredBarbers = useMemo(() => {
     if (!searchQuery) return barbers;

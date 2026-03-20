@@ -1,0 +1,82 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+  users: defineTable({
+    user_id: v.string(), // ID externo (e.g. de Clerk)
+    email: v.string(),
+    name: v.string(),
+    role: v.union(v.literal("client"), v.literal("barber")),
+    picture: v.optional(v.string()),
+    credits: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    referred_by: v.optional(v.string()), // ID del usuario que invitó
+    // Perfil avanzado exclusivo para barbero
+    barber_profile: v.optional(
+      v.object({
+        bio: v.string(),
+        rating: v.number(),
+        address: v.string(),
+        offers_home_service: v.boolean(),
+        home_service_fee: v.optional(v.number()),
+        location: v.optional(
+          v.object({
+            type: v.literal("Point"),
+            coordinates: v.array(v.number()) // [lng, lat]
+          })
+        ),
+        custom_schedule: v.optional(v.any()), // Ej: { "2025-05-20": { available: false } }
+      })
+    )
+  }).index("by_email", ["email"]).index("by_role", ["role"]).index("by_user_id", ["user_id"]),
+
+  bookings: defineTable({
+    client_id: v.string(), 
+    barber_id: v.string(), 
+    service_id: v.string(),
+    service_name: v.string(), 
+    barber_name: v.string(),
+    client_name: v.string(),
+    date: v.string(),
+    time: v.string(),
+    status: v.union(v.literal("pending"), v.literal("confirmed"), v.literal("completed"), v.literal("cancelled")),
+    total_amount: v.number(),
+    payment_method: v.string(), // "card" o "cash" o "app"
+    stripe_payment_intent_id: v.optional(v.string()),
+    reservation_fee: v.optional(v.number()),
+  }).index("by_client", ["client_id"]).index("by_barber", ["barber_id"]),
+
+  services: defineTable({
+    barber_id: v.string(),
+    name: v.string(),
+    price: v.number(),
+    duration: v.number()
+  }).index("by_barber", ["barber_id"]),
+
+  portfolio_items: defineTable({
+    barber_id: v.string(),
+    url: v.string(),
+    description: v.optional(v.string()),
+    format: v.optional(v.string()), 
+    width: v.optional(v.number()),
+    height: v.optional(v.number())
+  }).index("by_barber", ["barber_id"]),
+
+  reviews: defineTable({
+    barber_id: v.string(),
+    booking_id: v.string(),
+    client_id: v.string(),
+    client_name: v.string(),
+    client_picture: v.optional(v.string()),
+    rating: v.number(),
+    comment: v.optional(v.string()),
+    reply: v.optional(v.string()),
+    created_at: v.string() // ISO Date string
+  }).index("by_barber", ["barber_id"]),
+  
+  saved_styles: defineTable({
+    client_id: v.string(),
+    portfolio_item_id: v.id("portfolio_items"),
+    created_at: v.string()
+  }).index("by_client", ["client_id"])
+});

@@ -1,7 +1,6 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { AuthCallback } from "@/components/AuthCallback";
 import { Toaster } from "@/components/ui/sonner";
 import LandingPage from "@/pages/LandingPage";
 import AuthPage from "@/pages/AuthPage";
@@ -11,17 +10,13 @@ import BookingPage from "@/pages/BookingPage";
 import ClientDashboard from "@/pages/ClientDashboard";
 import BarberDashboard from "@/pages/BarberDashboard";
 import PaymentSuccess from "@/pages/PaymentSuccess";
+import { SyncUserWithConvex } from "@/components/SyncUserWithConvex";
 
 function AppRouter() {
-  const location = useLocation();
-
-  // CRITICAL: Check hash for session_id BEFORE routes render (prevents OAuth race conditions)
-  if (location.hash?.includes("session_id=")) {
-    return <AuthCallback />;
-  }
-
   return (
-    <Routes>
+    <>
+      <SyncUserWithConvex />
+      <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/auth" element={<AuthPage />} />
       <Route path="/explore" element={<MapSearchPage />} />
@@ -31,6 +26,7 @@ function AppRouter() {
       <Route path="/dashboard" element={<BarberDashboard />} />
       <Route path="/payment/success" element={<PaymentSuccess />} />
     </Routes>
+    </>
   );
 }
 
