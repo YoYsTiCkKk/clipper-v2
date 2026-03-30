@@ -15,16 +15,27 @@ export const storeUser = mutation({
       throw new Error("No autenticado en Clerk");
     }
 
-    // Comprobar si ya existe
     const existingUser = await ctx.db
       .query("users")
       .withIndex("by_user_id", (q) => q.eq("user_id", identity.subject))
       .first();
 
     if (existingUser) {
-      // Actualizar posibles cambios de foto o nombre provistos por Google
-      if (existingUser.name !== args.name || existingUser.picture !== args.picture) {
-        await ctx.db.patch(existingUser._id, { name: args.name, picture: args.picture });
+      let changed = false;
+      const upd: any = {};
+      if (existingUser.name !== args.name) { upd.name = args.name; changed = true; }
+      if (existingUser.picture !== args.picture) { upd.picture = args.picture; changed = true; }
+      // Permitir upgrade a barbero
+      if (existingUser.role === "client" && args.role === "barber") {
+        upd.role = "barber";
+        if (!existingUser.barber_profile) {
+          upd.barber_profile = { bio: "", rating: 0, address: "", offers_home_service: false };
+        }
+        changed = true;
+      }
+      
+      if (changed) {
+        await ctx.db.patch(existingUser._id, upd);
       }
       return existingUser._id;
     }

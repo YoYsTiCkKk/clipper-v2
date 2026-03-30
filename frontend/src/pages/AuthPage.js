@@ -3,16 +3,28 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { SignIn, SignUp, useUser } from "@clerk/clerk-react";
 import { ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { useQuery } from "convex/react";
+import { api } from "../convex/_generated/api";
 
 export default function AuthPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { isSignedIn } = useUser();
+  const dbUser = useQuery(api.users.getMe);
   const [tab] = useState(searchParams.get("tab") || "login");
+  const role = searchParams.get("role");
 
   useEffect(() => {
-    if (isSignedIn) navigate("/explore", { replace: true });
-  }, [isSignedIn, navigate]);
+    if (role === "barber") {
+      localStorage.setItem("pendingRole", "barber");
+    }
+  }, [role]);
+
+  useEffect(() => {
+    if (isSignedIn && dbUser) {
+      navigate(dbUser.role === "barber" ? "/dashboard" : "/explore", { replace: true });
+    }
+  }, [isSignedIn, dbUser, navigate]);
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-4 py-12">

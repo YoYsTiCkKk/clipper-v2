@@ -9,11 +9,15 @@ export function SyncUserWithConvex() {
 
   useEffect(() => {
     if (isLoaded && isSignedIn && user) {
+      const pendingRole = localStorage.getItem("pendingRole");
       storeUser({
         email: user.primaryEmailAddress?.emailAddress || "",
         name: user.fullName || user.firstName || "Usuario",
-        role: user.publicMetadata?.role || "client", 
+        role: pendingRole || user.publicMetadata?.role || "client", 
         picture: user.imageUrl
+      }).then(() => {
+        // Clear pending role once stored successfully
+        if (pendingRole) localStorage.removeItem("pendingRole");
       }).catch(console.error);
     }
   }, [isLoaded, isSignedIn, user, storeUser]);

@@ -4,8 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Logo } from "@/components/Logo";
-import { MapPin, LogOut, Search, Clock, Check, Send, ChevronRight, Scissors } from "lucide-react";
+import { Clock, LogOut, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BottomNav } from "@/components/BottomNav";
 
 export default function ClientDashboard() {
   const { user, logout } = useAuth();
@@ -84,6 +85,8 @@ export default function ClientDashboard() {
           )}
         </div>
       </main>
+
+      <BottomNav />
     </div>
   );
 }

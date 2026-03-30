@@ -10,7 +10,7 @@ export function BottomNav() {
   const clientItems = [
     { icon: Search, label: "Explorar", path: "/explore" },
     { icon: Calendar, label: "Reservas", path: "/bookings" },
-    { icon: User, label: "Perfil", path: "/auth" },
+    { icon: User, label: "Perfil", path: "/bookings" },
   ];
 
   const barberItems = [

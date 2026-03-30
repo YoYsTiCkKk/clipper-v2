@@ -22,6 +22,8 @@ export default function BarberProfilePage() {
   
   const barber = useQuery(api.users.getBarber, { barber_id: id });
   const reviews = useQuery(api.reviews.getBarberReviews, { barber_id: id }) || [];
+  const services = useQuery(api.services.getBarberServices, barber ? { barber_id: barber.user_id } : "skip") || [];
+  const portfolio = useQuery(api.portfolio.getBarberPortfolio, barber ? { barber_id: barber.user_id } : "skip") || [];
   
   const loading = barber === undefined;
 
@@ -36,8 +38,6 @@ export default function BarberProfilePage() {
   if (!barber) return null;
 
   const profile = barber.barber_profile || {};
-  const services = useQuery(api.services.getBarberServices, { barber_id: barber.user_id }) || [];
-  const portfolio = useQuery(api.portfolio.getBarberPortfolio, { barber_id: barber.user_id }) || [];
 
   const handleBook = (serviceId) => {
     if (!user) {
