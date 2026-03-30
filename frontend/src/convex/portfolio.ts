@@ -19,15 +19,48 @@ export const getGlobalFeed = query({
   }
 });
 
-export const addPortfolioImage = mutation({
-  args: { url: v.string(), description: v.optional(v.string()) },
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No auth");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const addPortfolioPost = mutation({
+  args: {
+    description: v.optional(v.string()),
+    media: v.array(
+      v.object({
+        storageId: v.optional(v.id("_storage")),
+        url: v.optional(v.string()),
+        type: v.string(),
+      })
+    )
+  },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("No auth");
+
+    const processedMedia = await Promise.all(
+      args.media.map(async (m) => {
+        if (m.storageId) {
+          const url = await ctx.storage.getUrl(m.storageId);
+          if (!url) throw new Error(`Storage URL no generada para ${m.storageId}`);
+          return { url, storageId: m.storageId, type: m.type };
+        }
+        if (m.url) {
+           return { url: m.url, type: m.type };
+        }
+        throw new Error("Falta url o storageId");
+      })
+    );
+
     return await ctx.db.insert("portfolio_items", {
       barber_id: identity.subject,
-      url: args.url,
-      description: args.description
+      description: args.description,
+      media: processedMedia
     });
   }
 });
@@ -38,7 +71,18 @@ export const deletePortfolioImage = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("No auth");
     const item = await ctx.db.get(args.id);
-    if (item?.barber_id !== identity.subject) throw new Error("Acceso denegado");
+    if (!item) return;
+    if (item.barber_id !== identity.subject) throw new Error("Acceso denegado");
+    
+    // Eliminar archivos de storage si existen
+    if (item.media) {
+      for (const m of item.media) {
+        if (m.storageId) {
+          await ctx.storage.delete(m.storageId);
+        }
+      }
+    }
+    
     await ctx.db.delete(args.id);
   }
 });

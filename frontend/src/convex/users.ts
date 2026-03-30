@@ -129,3 +129,47 @@ export const getBarber = query({
       .first();
   }
 });
+
+export const updateAvailability = mutation({
+  args: {
+    date: v.string(), // YYYY-MM-DD
+    available: v.boolean(),
+    start_hour: v.number(),
+    end_hour: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No autenticado");
+    const user = await ctx.db.query("users").withIndex("by_user_id", q => q.eq("user_id", identity.subject)).first();
+    if (!user || user.role !== "barber") throw new Error("Acceso denegado");
+    
+    const profile = user.barber_profile || { bio: "", rating: 5, address: "", offers_home_service: false };
+    const custom_schedule = profile.custom_schedule || {};
+    custom_schedule[args.date] = {
+      available: args.available,
+      start_hour: args.start_hour,
+      end_hour: args.end_hour
+    };
+    profile.custom_schedule = custom_schedule;
+    
+    await ctx.db.patch(user._id, { barber_profile: profile });
+  }
+});
+
+export const removeAvailability = mutation({
+  args: { date: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No auth");
+    const user = await ctx.db.query("users").withIndex("by_user_id", q => q.eq("user_id", identity.subject)).first();
+    if (!user || user.role !== "barber") return;
+    
+    const profile = user.barber_profile || { bio: "", rating: 5, address: "", offers_home_service: false };
+    if (profile.custom_schedule && profile.custom_schedule[args.date]) {
+      const custom_schedule = profile.custom_schedule;
+      delete custom_schedule[args.date];
+      profile.custom_schedule = custom_schedule;
+      await ctx.db.patch(user._id, { barber_profile: profile });
+    }
+  }
+});

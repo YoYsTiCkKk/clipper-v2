@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,9 +17,6 @@ import {
 import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
-import axios from "axios";
-
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const statusMap = {
   pending: { label: "Pendiente", class: "bg-yellow-500/10 text-yellow-500 border-0" },
@@ -28,192 +27,197 @@ const statusMap = {
 
 export default function BarberDashboard() {
   const navigate = useNavigate();
-  const { user, logout, checkAuth, loading: authLoading } = useAuth();
-  const [barberData, setBarberData] = useState(null);
-  const [bookings, setBookings] = useState([]);
-  const [reviews, setReviews] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { user, logout, loading: authLoading } = useAuth();
+  
+  // Convex Reactivity Queries
+  const barberData = useQuery(api.users.getMe);
+  const bookings = useQuery(api.bookings.getMyBookings) || [];
+  const reviews = useQuery(api.reviews.getBarberReviews, barberData ? { barber_id: barberData.user_id } : "skip") || [];
+  const services = useQuery(api.services.getBarberServices, barberData ? { barber_id: barberData.user_id } : "skip") || [];
+  const portfolio = useQuery(api.portfolio.getBarberPortfolio, barberData ? { barber_id: barberData.user_id } : "skip") || [];
 
-  // Service form
+  // Mutations
+  const updateProfile = useMutation(api.users.updateBarberProfile);
+  const updateAvailability = useMutation(api.users.updateAvailability);
+  const removeAvailability = useMutation(api.users.removeAvailability);
+  const addServiceObj = useMutation(api.services.addService);
+  const removeServiceObj = useMutation(api.services.removeService);
+  const updateBookingStatus = useMutation(api.bookings.updateStatus);
+  const generateUploadUrl = useMutation(api.portfolio.generateUploadUrl);
+  const addPortfolioPost = useMutation(api.portfolio.addPortfolioPost);
+  const deletePortfolioPost = useMutation(api.portfolio.deletePortfolioImage);
+
+  // Component States
   const [newService, setNewService] = useState({ name: "", price: "", duration: "30" });
-  // Portfolio form
-  const [newImage, setNewImage] = useState({ url: "", description: "" });
-  // Profile form
-  const [profileForm, setProfileForm] = useState({
-    name: "", bio: "", address: "", phone: "", latitude: "", longitude: "",
-  });
-  const [saving, setSaving] = useState(false);
-  // File upload
-  const [uploadFile, setUploadFile] = useState(null);
+  
+  // Multi-File Upload State
+  const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadDesc, setUploadDesc] = useState("");
   const [uploading, setUploading] = useState(false);
-  // Availability
+  
+  // URL Upload State
+  const [newImageUrl, setNewImageUrl] = useState("");
+  const [newImageDesc, setNewImageDesc] = useState("");
+
+  // Profile Form
+  const [profileForm, setProfileForm] = useState({
+    name: "", bio: "", address: "", phone: "", lat: "", lng: "", offersHomeService: false, homeServiceFee: ""
+  });
+  const [saving, setSaving] = useState(false);
+  
+  // Availability Form
   const [availDate, setAvailDate] = useState("");
   const [availConfig, setAvailConfig] = useState({ available: true, start_hour: "9", end_hour: "19" });
   const [customSchedule, setCustomSchedule] = useState({});
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [barberRes, bookingsRes, reviewsRes] = await Promise.all([
-        axios.get(`${API}/auth/me`, { withCredentials: true }),
-        axios.get(`${API}/bookings`, { withCredentials: true }),
-        axios.get(`${API}/barbers/${user?.user_id}/reviews`, { withCredentials: true }).catch(() => ({ data: [] })),
-      ]);
-      setBarberData(barberRes.data);
-      setBookings(bookingsRes.data);
-      setReviews(reviewsRes.data);
-      const bp = barberRes.data.barber_profile || {};
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { navigate("/auth"); return; }
+    if (user.role !== "barber") { navigate("/bookings"); return; }
+  }, [user, navigate, authLoading]);
+
+  // Sync profile data when Convex query loads
+  useEffect(() => {
+    if (barberData && barberData.barber_profile) {
+      const bp = barberData.barber_profile;
       const coords = bp.location?.coordinates || [0, 0];
       setProfileForm({
-        name: barberRes.data.name || "",
+        name: barberData.name || "",
         bio: bp.bio || "",
         address: bp.address || "",
-        phone: barberRes.data.phone || "",
+        phone: barberData.phone || "",
         lat: coords[1] !== 0 ? String(coords[1]) : "",
         lng: coords[0] !== 0 ? String(coords[0]) : "",
         offersHomeService: bp.offers_home_service || false,
         homeServiceFee: bp.home_service_fee !== undefined ? String(bp.home_service_fee) : ""
       });
       setCustomSchedule(bp.custom_schedule || {});
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [user]);
+    }
+  }, [barberData]);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) { navigate("/auth"); return; }
-    if (user.role !== "barber") { navigate("/bookings"); return; }
-    fetchData();
-  }, [user, navigate, fetchData, authLoading]);
-
+  // Handlers
   const handleAddService = async () => {
     if (!newService.name || !newService.price) return;
     try {
-      await axios.post(`${API}/barbers/services`, {
+      await addServiceObj({
         name: newService.name,
         price: parseFloat(newService.price),
         duration: parseInt(newService.duration) || 30,
-      }, { withCredentials: true });
+      });
       setNewService({ name: "", price: "", duration: "30" });
       toast.success("Servicio agregado");
-      fetchData();
-    } catch (err) {
-      toast.error("Error al agregar servicio");
-    }
+    } catch (err) { toast.error("Error al agregar servicio"); }
   };
 
-  const handleDeleteService = async (serviceId) => {
+  const handleDeleteService = async (id) => {
     try {
-      await axios.delete(`${API}/barbers/services/${serviceId}`, { withCredentials: true });
+      await removeServiceObj({ id });
       toast.success("Servicio eliminado");
-      fetchData();
-    } catch { toast.error("Error al eliminar"); }
-  };
-
-  const handleAddImage = async () => {
-    if (!newImage.url) return;
-    try {
-      await axios.post(`${API}/barbers/portfolio`, newImage, { withCredentials: true });
-      setNewImage({ url: "", description: "" });
-      toast.success("Imagen agregada");
-      fetchData();
-    } catch { toast.error("Error al agregar imagen"); }
-  };
-
-  const handleDeleteImage = async (imageId) => {
-    try {
-      await axios.delete(`${API}/barbers/portfolio/${imageId}`, { withCredentials: true });
-      toast.success("Imagen eliminada");
-      fetchData();
     } catch { toast.error("Error al eliminar"); }
   };
 
   const handleFileUpload = async () => {
-    if (!uploadFile) return;
+    if (uploadFiles.length === 0) return;
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", uploadFile);
-      formData.append("description", uploadDesc);
-      await axios.post(`${API}/barbers/portfolio/upload`, formData, {
-        withCredentials: true,
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setUploadFile(null);
+      const mediaArray = [];
+      for (const file of uploadFiles) {
+        // Generar URL seguro individual para cada archivo en Convex Storage
+        const uploadUrl = await generateUploadUrl();
+        const result = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        const { storageId } = await result.json();
+        
+        mediaArray.push({
+          storageId,
+          type: file.type.startsWith("video/") ? "video" : "image",
+        });
+      }
+      
+      await addPortfolioPost({ description: uploadDesc, media: mediaArray });
+      
+      setUploadFiles([]);
       setUploadDesc("");
-      toast.success("Imagen subida");
-      fetchData();
+      document.getElementById("portfolio-file-input").value = "";
+      toast.success("Publicación multimedia creada");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Error al subir imagen");
+      console.error(err);
+      toast.error("Error al subir contenido");
     } finally { setUploading(false); }
+  };
+
+  const handleAddUrlImage = async () => {
+    if (!newImageUrl) return;
+    try {
+      await addPortfolioPost({
+        description: newImageDesc,
+        media: [{ url: newImageUrl, type: "image" }]
+      });
+      setNewImageUrl("");
+      setNewImageDesc("");
+      toast.success("Imagen agregada vía URL");
+    } catch { toast.error("Error al publicar URL"); }
+  };
+
+  const handleDeletePost = async (id) => {
+    try {
+      await deletePortfolioPost({ id });
+      toast.success("Publicación eliminada");
+    } catch { toast.error("Error al eliminar post"); }
   };
 
   const handleSetAvailability = async () => {
     if (!availDate) { toast.error("Selecciona una fecha"); return; }
     try {
-      await axios.put(`${API}/barbers/availability/custom`, {
+      await updateAvailability({
         date: availDate,
         available: availConfig.available,
         start_hour: parseInt(availConfig.start_hour),
         end_hour: parseInt(availConfig.end_hour),
-      }, { withCredentials: true });
-      toast.success(`Disponibilidad para ${availDate} actualizada`);
-      setCustomSchedule((prev) => ({
-        ...prev,
-        [availDate]: {
-          available: availConfig.available,
-          start_hour: parseInt(availConfig.start_hour),
-          end_hour: parseInt(availConfig.end_hour),
-        },
-      }));
+      });
+      toast.success(`Disponibilidad para ${availDate} guardada`);
       setAvailDate("");
     } catch { toast.error("Error al actualizar disponibilidad"); }
   };
 
   const handleDeleteAvailability = async (dateStr) => {
     try {
-      await axios.delete(`${API}/barbers/availability/custom/${dateStr}`, { withCredentials: true });
-      toast.success(`Disponibilidad para ${dateStr} eliminada`);
-      setCustomSchedule((prev) => {
-        const updated = { ...prev };
-        delete updated[dateStr];
-        return updated;
-      });
-    } catch { toast.error("Error al eliminar disponibilidad"); }
+      await removeAvailability({ date: dateStr });
+      toast.success(`Disponibilidad de ${dateStr} restaurada`);
+    } catch { toast.error("Error al eliminar regla"); }
   };
 
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      await axios.put(`${API}/barbers/profile`, {
+      await updateProfile({
         name: profileForm.name || undefined,
         phone: profileForm.phone || undefined,
-        barber_profile: {
-          bio: profileForm.bio || undefined,
-          address: profileForm.address || undefined,
-          location: (profileForm.lat && profileForm.lng) ? { type: "Point", coordinates: [parseFloat(profileForm.lng), parseFloat(profileForm.lat)] } : undefined,
-          offers_home_service: profileForm.offersHomeService,
-          home_service_fee: profileForm.offersHomeService ? (parseFloat(profileForm.homeServiceFee) || 0) : undefined
-        }
-      }, { withCredentials: true });
-      toast.success("Perfil actualizado");
-      await checkAuth();
-      fetchData();
-    } catch { toast.error("Error al guardar"); }
+        bio: profileForm.bio || undefined,
+        address: profileForm.address || undefined,
+        offers_home_service: profileForm.offersHomeService,
+        home_service_fee: profileForm.offersHomeService ? (parseFloat(profileForm.homeServiceFee) || 0) : undefined,
+        lat: profileForm.lat ? parseFloat(profileForm.lat) : undefined,
+        lng: profileForm.lng ? parseFloat(profileForm.lng) : undefined
+      });
+      toast.success("Perfil actualizado en Convex");
+    } catch { toast.error("Error al guardar perfil"); }
     finally { setSaving(false); }
   };
 
   const handleBookingAction = async (bookingId, status) => {
     try {
-      await axios.put(`${API}/bookings/${bookingId}/status`, { status }, { withCredentials: true });
-      toast.success(status === "confirmed" ? "Reserva confirmada" : status === "completed" ? "Reserva completada" : "Reserva cancelada");
-      fetchData();
-    } catch { toast.error("Error al actualizar"); }
+      await updateBookingStatus({ booking_id: bookingId, status });
+      toast.success("Estado actualizado");
+    } catch { toast.error("Ups! Algo salió mal"); }
   };
 
   const handleLogout = async () => { await logout(); navigate("/"); };
 
-  if (!user || loading) {
+  if (!user || user.role !== "barber" || barberData === undefined) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -221,9 +225,6 @@ export default function BarberDashboard() {
     );
   }
 
-  const profile = barberData?.barber_profile || {};
-  const services = profile.services || [];
-  const portfolio = profile.portfolio || [];
   const pendingBookings = bookings.filter((b) => b.status === "pending" || b.status === "confirmed");
 
   return (
@@ -239,9 +240,9 @@ export default function BarberDashboard() {
           </div>
           <div className="flex items-center gap-1">
             <NotificationBell />
-            <button data-testid="barber-logout-btn" onClick={handleLogout}>
-            <LogOut className="w-5 h-5 text-zinc-500 hover:text-white transition-colors" />
-          </button>
+            <button data-testid="barber-logout-btn" onClick={handleLogout} className="p-2">
+              <LogOut className="w-5 h-5 text-zinc-500 hover:text-white transition-colors" />
+            </button>
           </div>
         </div>
       </div>
@@ -253,7 +254,7 @@ export default function BarberDashboard() {
             <p className="text-2xl font-bold text-amber-500" style={{ fontFamily: "Syne" }}>
               {pendingBookings.length}
             </p>
-            <p className="text-xs text-zinc-500 mt-1">Reservas activas</p>
+            <p className="text-xs text-zinc-500 mt-1">Reservas</p>
           </div>
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
             <p className="text-2xl font-bold text-white" style={{ fontFamily: "Syne" }}>
@@ -265,27 +266,26 @@ export default function BarberDashboard() {
             <p className="text-2xl font-bold text-white" style={{ fontFamily: "Syne" }}>
               {portfolio.length}
             </p>
-            <p className="text-xs text-zinc-500 mt-1">Fotos</p>
+            <p className="text-xs text-zinc-500 mt-1">Posts</p>
           </div>
         </div>
 
         <Tabs defaultValue="bookings" className="w-full">
           <TabsList className="w-full bg-zinc-900 border border-zinc-800">
-            <TabsTrigger value="bookings" data-testid="tab-bookings" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Reservas</TabsTrigger>
-            <TabsTrigger value="services" data-testid="tab-services" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Servicios</TabsTrigger>
-            <TabsTrigger value="portfolio" data-testid="tab-portfolio" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Portfolio</TabsTrigger>
-            <TabsTrigger value="availability" data-testid="tab-availability" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Horarios</TabsTrigger>
-            <TabsTrigger value="profile" data-testid="tab-profile" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Perfil</TabsTrigger>
-            <TabsTrigger value="reviews" data-testid="tab-reviews" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Reseñas</TabsTrigger>
+            <TabsTrigger value="bookings" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Reservas</TabsTrigger>
+            <TabsTrigger value="services" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Servicios</TabsTrigger>
+            <TabsTrigger value="portfolio" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Publicaciones</TabsTrigger>
+            <TabsTrigger value="availability" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Horarios</TabsTrigger>
+            <TabsTrigger value="profile" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Perfil</TabsTrigger>
           </TabsList>
 
-          {/* BOOKINGS TAB */}
+          {/* BOOKINGS */}
           <TabsContent value="bookings" className="mt-4 space-y-3">
             {bookings.length === 0 ? (
-              <p className="text-zinc-500 text-center py-8">No tienes reservas aun</p>
+              <p className="text-zinc-500 text-center py-8">No tienes reservas activas</p>
             ) : (
               bookings.map((b) => (
-                <div key={b.booking_id} data-testid={`barber-booking-${b.booking_id}`} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                <div key={b._id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
                   <div className="flex items-start justify-between mb-2">
                     <div>
                       <p className="text-white font-medium">{b.service_name}</p>
@@ -300,127 +300,151 @@ export default function BarberDashboard() {
                   </div>
                   {b.status === "pending" && (
                     <div className="flex gap-2">
-                      <Button data-testid={`confirm-${b.booking_id}`} onClick={() => handleBookingAction(b.booking_id, "confirmed")} className="flex-1 h-8 bg-green-600 hover:bg-green-700 text-white rounded-full text-sm"><Check className="w-3 h-3 mr-1" />Confirmar</Button>
-                      <Button data-testid={`cancel-${b.booking_id}`} onClick={() => handleBookingAction(b.booking_id, "cancelled")} variant="outline" className="flex-1 h-8 border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-full text-sm"><X className="w-3 h-3 mr-1" />Rechazar</Button>
+                      <Button onClick={() => handleBookingAction(b._id, "confirmed")} className="flex-1 h-8 bg-green-600 hover:bg-green-700 text-white rounded-full text-sm"><Check className="w-3 h-3 mr-1" />Confirmar</Button>
+                      <Button onClick={() => handleBookingAction(b._id, "cancelled")} variant="outline" className="flex-1 h-8 border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-full text-sm"><X className="w-3 h-3 mr-1" />Rechazar</Button>
                     </div>
                   )}
                   {b.status === "confirmed" && (
-                    <Button data-testid={`complete-${b.booking_id}`} onClick={() => handleBookingAction(b.booking_id, "completed")} className="w-full h-8 bg-amber-500 hover:bg-amber-600 text-black rounded-full text-sm">Marcar como completada</Button>
+                    <Button onClick={() => handleBookingAction(b._id, "completed")} className="w-full h-8 bg-amber-500 hover:bg-amber-600 text-black rounded-full text-sm">Marcar como completada</Button>
                   )}
                 </div>
               ))
             )}
           </TabsContent>
 
-          {/* SERVICES TAB */}
+          {/* SERVICES */}
           <TabsContent value="services" className="mt-4 space-y-4">
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
               <h3 className="text-sm font-semibold text-zinc-300 mb-3">Agregar servicio</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Input data-testid="new-service-name" placeholder="Nombre del servicio" value={newService.name} onChange={(e) => setNewService({ ...newService, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
-                <Input data-testid="new-service-price" type="number" placeholder="Precio (€)" value={newService.price} onChange={(e) => setNewService({ ...newService, price: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
-                <Input data-testid="new-service-duration" type="number" placeholder="Duracion (min)" value={newService.duration} onChange={(e) => setNewService({ ...newService, duration: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <Input placeholder="Nombre del servicio" value={newService.name} onChange={(e) => setNewService({ ...newService, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <Input type="number" placeholder="Precio (€)" value={newService.price} onChange={(e) => setNewService({ ...newService, price: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <Input type="number" placeholder="Duracion (min)" value={newService.duration} onChange={(e) => setNewService({ ...newService, duration: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
               </div>
-              <Button data-testid="add-service-btn" onClick={handleAddService} className="mt-3 rounded-full bg-amber-500 text-black hover:bg-amber-600 h-9 text-sm"><Plus className="w-4 h-4 mr-1" />Agregar</Button>
+              <Button onClick={handleAddService} className="mt-3 rounded-full bg-amber-500 text-black hover:bg-amber-600 h-9 text-sm"><Plus className="w-4 h-4 mr-1" />Guardar</Button>
             </div>
             <div className="space-y-2">
               {services.map((s) => (
-                <div key={s.service_id} data-testid={`manage-service-${s.service_id}`} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                <div key={s._id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
                   <div>
                     <p className="text-white font-medium">{s.name}</p>
                     <p className="text-sm text-zinc-500">{s.duration} min · {s.price.toFixed(0)}€</p>
                   </div>
-                  <button data-testid={`delete-service-${s.service_id}`} onClick={() => handleDeleteService(s.service_id)} className="text-zinc-600 hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => handleDeleteService(s._id)} className="text-zinc-600 hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>
           </TabsContent>
 
-          {/* PORTFOLIO TAB */}
+          {/* PORTFOLIO / PUBLICACIONES */}
           <TabsContent value="portfolio" className="mt-4 space-y-4">
-            {/* File Upload */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
-                <Upload className="w-4 h-4 text-amber-500" />Subir imagen
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
+              <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+                <Upload className="w-4 h-4 text-amber-500" />Nueva Publicación (Soporta múltiples)
               </h3>
+              
               <div className="space-y-3">
                 <input
-                  data-testid="portfolio-file-input"
+                  id="portfolio-file-input"
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
+                  onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
                   className="w-full text-sm text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-amber-500/10 file:text-amber-500 file:text-xs file:font-medium hover:file:bg-amber-500/20"
                 />
-                <Input data-testid="upload-desc-input" placeholder="Descripcion (opcional)" value={uploadDesc} onChange={(e) => setUploadDesc(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
-                <Button data-testid="upload-image-btn" onClick={handleFileUpload} disabled={!uploadFile || uploading} className="rounded-full bg-amber-500 text-black hover:bg-amber-600 h-9 text-sm">
-                  {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />Subiendo...</> : <><Upload className="w-4 h-4 mr-1" />Subir</>}
+                {uploadFiles.length > 0 && (
+                  <p className="text-xs text-amber-500 font-medium">Archivos listos: {uploadFiles.length}</p>
+                )}
+                <Input placeholder="Descripcion de la publicación (opcional)..." value={uploadDesc} onChange={(e) => setUploadDesc(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <Button onClick={handleFileUpload} disabled={uploadFiles.length === 0 || uploading} className="rounded-full bg-amber-500 text-black hover:bg-amber-600 h-9 text-sm">
+                  {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />Subiendo...</> : <><Upload className="w-4 h-4 mr-1" />Publicar contenido</>}
                 </Button>
               </div>
-            </div>
-            {/* URL-based add */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-zinc-300 mb-3">O agregar por URL</h3>
+
+              <Separator className="bg-zinc-800 my-2" />
+              
               <div className="space-y-3">
-                <Input data-testid="new-image-url" placeholder="URL de la imagen" value={newImage.url} onChange={(e) => setNewImage({ ...newImage, url: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
-                <Input data-testid="new-image-desc" placeholder="Descripcion (opcional)" value={newImage.description} onChange={(e) => setNewImage({ ...newImage, description: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <p className="text-xs text-zinc-500">O pegar una URL externa (si no quieres usar archivos)</p>
+                <div className="flex gap-2">
+                  <Input placeholder="URL de la imagen" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                  <Button onClick={handleAddUrlImage} variant="outline" className="h-10 border-zinc-700 text-white hover:bg-zinc-800"><Plus className="w-4 h-4" /></Button>
+                </div>
               </div>
-              <Button data-testid="add-image-btn" onClick={handleAddImage} className="mt-3 rounded-full bg-amber-500 text-black hover:bg-amber-600 h-9 text-sm"><Plus className="w-4 h-4 mr-1" />Agregar</Button>
             </div>
+
+            {/* Galería (Muro) */}
             {portfolio.length > 0 && (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {portfolio.map((img) => (
-                  <div key={img.image_id} className="relative group rounded-xl overflow-hidden aspect-square">
-                    <img src={img.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${img.url}` : img.url} alt={img.description} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
-                      <button data-testid={`delete-image-${img.image_id}`} onClick={() => handleDeleteImage(img.image_id)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-2"><Trash2 className="w-4 h-4" /></button>
+                {portfolio.map((post) => {
+                  const mediaCount = post.media?.length || 0;
+                  // Retrocompatibilidad con posts viejos (single url)
+                  const firstMedia = mediaCount > 0 ? post.media[0] : { url: post.url, type: "image" };
+                  const isVideo = firstMedia.type === "video";
+                  
+                  return (
+                    <div key={post._id} className="relative group rounded-xl overflow-hidden aspect-square bg-zinc-900 border border-zinc-800">
+                      {isVideo ? (
+                         <video src={firstMedia.url} className="w-full h-full object-cover" muted loop autoPlay playsInline />
+                      ) : (
+                         <img src={firstMedia.url} alt={post.description || "Portfolio"} className="w-full h-full object-cover" />
+                      )}
+                      
+                      {mediaCount > 1 && (
+                        <div className="absolute top-2 right-2 bg-black/60 rounded-md px-1.5 py-0.5 text-xs font-bold flex items-center gap-1 text-white z-10">
+                           <ImageIcon className="w-3 h-3" /> {mediaCount}
+                        </div>
+                      )}
+                      
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors flex items-center justify-center z-20">
+                        <button onClick={() => handleDeletePost(post._id)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-2 hover:bg-red-600"><Trash2 className="w-4 h-4" /></button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </TabsContent>
 
-          {/* AVAILABILITY TAB */}
+          {/* AVAILABILITY */}
           <TabsContent value="availability" className="mt-4 space-y-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
               <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-amber-500" />Configurar disponibilidad por dia
               </h3>
-              <p className="text-xs text-zinc-500">Establece horarios personalizados o marca dias como no disponible.</p>
               <div>
                 <Label className="text-zinc-300 text-sm mb-1.5 block">Fecha</Label>
-                <Input data-testid="avail-date-input" type="date" value={availDate} onChange={(e) => setAvailDate(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" />
+                <Input type="date" value={availDate} onChange={(e) => setAvailDate(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" />
               </div>
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={availConfig.available} onChange={(e) => setAvailConfig({...availConfig, available: e.target.checked})} className="accent-amber-500" />
-                  <span className="text-sm text-zinc-300">Disponible</span>
+                  <span className="text-sm text-zinc-300">Disponible ese día</span>
                 </label>
               </div>
               {availConfig.available && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-zinc-400 text-xs mb-1 block">Hora inicio</Label>
-                    <select data-testid="avail-start-hour" value={availConfig.start_hour} onChange={(e) => setAvailConfig({...availConfig, start_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
+                    <select value={availConfig.start_hour} onChange={(e) => setAvailConfig({...availConfig, start_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
                       {Array.from({length: 14}, (_, i) => i + 7).map(h => <option key={h} value={h}>{h}:00</option>)}
                     </select>
                   </div>
                   <div>
                     <Label className="text-zinc-400 text-xs mb-1 block">Hora fin</Label>
-                    <select data-testid="avail-end-hour" value={availConfig.end_hour} onChange={(e) => setAvailConfig({...availConfig, end_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
+                    <select value={availConfig.end_hour} onChange={(e) => setAvailConfig({...availConfig, end_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
                       {Array.from({length: 14}, (_, i) => i + 8).map(h => <option key={h} value={h}>{h}:00</option>)}
                     </select>
                   </div>
                 </div>
               )}
-              <Button data-testid="save-availability-btn" onClick={handleSetAvailability} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
-                <Save className="w-4 h-4 mr-2" />Guardar disponibilidad
+              <Button onClick={handleSetAvailability} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
+                <Save className="w-4 h-4 mr-2" />Guardar horario
               </Button>
             </div>
-            {/* Custom schedule overview */}
+
             {Object.keys(customSchedule).length > 0 && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Horarios personalizados</h3>
+                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Días Modificados</h3>
                 <div className="space-y-2">
                   {Object.entries(customSchedule).sort().map(([date, cfg]) => (
                     <div key={date} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
@@ -429,7 +453,7 @@ export default function BarberDashboard() {
                         {cfg.available ? (
                           <Badge className="bg-green-500/10 text-green-500 border-0 text-xs">{cfg.start_hour}:00 - {cfg.end_hour}:00</Badge>
                         ) : (
-                          <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No disponible</Badge>
+                          <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No laborable</Badge>
                         )}
                         <button onClick={() => handleDeleteAvailability(date)} className="text-zinc-600 hover:text-red-400 transition-colors">
                           <X className="w-4 h-4" />
@@ -442,44 +466,43 @@ export default function BarberDashboard() {
             )}
           </TabsContent>
 
-          {/* PROFILE TAB */}
+          {/* PROFILE */}
           <TabsContent value="profile" className="mt-4 space-y-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
               <div>
                 <Label className="text-zinc-300 text-sm mb-1.5 block">Nombre</Label>
-                <Input data-testid="profile-name" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" />
+                <Input value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" />
               </div>
               <div>
-                <Label className="text-zinc-300 text-sm mb-1.5 block">Bio</Label>
-                <textarea data-testid="profile-bio" value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} rows={3} className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 outline-none resize-none" />
+                <Label className="text-zinc-300 text-sm mb-1.5 block">Descripción / Bio</Label>
+                <textarea value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} rows={3} className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 outline-none resize-none" />
               </div>
               <div>
-                <Label className="text-zinc-300 text-sm mb-1.5 block">Direccion</Label>
-                <Input data-testid="profile-address" value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} placeholder="Calle, ciudad" className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <Label className="text-zinc-300 text-sm mb-1.5 block">Dirección local</Label>
+                <Input value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} placeholder="Calle, ciudad" className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
               </div>
               <div>
-                <Label className="text-zinc-300 text-sm mb-1.5 block">Telefono</Label>
-                <Input data-testid="profile-phone" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} placeholder="+34 600 000 000" className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                <Label className="text-zinc-300 text-sm mb-1.5 block">Teléfono (WhatsApp)</Label>
+                <Input value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} placeholder="+34 600..." className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
               </div>
-              <Separator className="bg-zinc-800" />
-              <div>
-                <Label className="text-zinc-300 text-sm mb-1.5 block">Ubicacion (coordenadas)</Label>
-                <p className="text-xs text-zinc-500 mb-2">Introduce latitud y longitud para aparecer en el mapa</p>
+              
+              <div className="bg-black/30 p-4 rounded-lg border border-zinc-800">
+                <p className="text-xs text-amber-500 mb-2 font-medium">Ubicación para clientes cercanos</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input data-testid="profile-latitude" type="number" step="any" placeholder="Latitud (ej: 40.4168)" value={profileForm.lat} onChange={(e) => setProfileForm({ ...profileForm, lat: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
-                  <Input data-testid="profile-longitude" type="number" step="any" placeholder="Longitud (ej: -3.7038)" value={profileForm.lng} onChange={(e) => setProfileForm({ ...profileForm, lng: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                  <Input type="number" step="any" placeholder="Latitud (40.416)" value={profileForm.lat} onChange={(e) => setProfileForm({ ...profileForm, lat: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" />
+                  <Input type="number" step="any" placeholder="Longitud (-3.703)" value={profileForm.lng} onChange={(e) => setProfileForm({ ...profileForm, lng: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" />
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
+              <div className="bg-black/30 border border-zinc-800 rounded-lg p-4 flex flex-col gap-4">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={profileForm.offersHomeService}
                     onChange={(e) => setProfileForm({ ...profileForm, offersHomeService: e.target.checked })}
-                    className="w-5 h-5 rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-amber-500/20"
+                    className="w-5 h-5 rounded border-zinc-700 bg-zinc-800 text-amber-500"
                   />
-                  <span className="text-sm font-medium text-white">Ofrezco cortes a domicilio</span>
+                  <span className="text-sm font-medium text-white">Ofrezco servicio a domicilio</span>
                 </label>
                 {profileForm.offersHomeService && (
                   <div>
@@ -489,55 +512,15 @@ export default function BarberDashboard() {
                       value={profileForm.homeServiceFee}
                       onChange={(e) => setProfileForm({ ...profileForm, homeServiceFee: e.target.value })}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 outline-none"
-                      step="0.5"
                     />
                   </div>
                 )}
               </div>
 
-              <Button data-testid="save-profile-btn" onClick={handleSaveProfile} disabled={saving} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
-                {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil</>}
+              <Button onClick={handleSaveProfile} disabled={saving} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
+                {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil Convex</>}
               </Button>
             </div>
-          </TabsContent>
-
-          {/* REVIEWS TAB */}
-          <TabsContent value="reviews" className="mt-4 space-y-4">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-4" style={{ fontFamily: "Syne" }}>
-              <MessageSquare className="w-5 h-5 text-amber-500" />
-              Reseñas ({reviews.length})
-            </h3>
-            {reviews.length === 0 ? (
-              <p className="text-zinc-500 text-sm text-center py-8">Aún no tienes reseñas.</p>
-            ) : (
-              <div className="space-y-3">
-                {reviews.map((rev) => (
-                  <div key={rev.review_id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        {rev.client_picture ? (
-                          <img src={rev.client_picture} alt="" className="w-8 h-8 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-400">
-                            {rev.client_name?.[0]}
-                          </div>
-                        )}
-                        <span className="text-sm font-medium text-white">{rev.client_name}</span>
-                      </div>
-                      <div className="flex items-center gap-0.5">
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Star key={s} className={`w-3 h-3 ${s <= rev.rating ? "text-amber-500 fill-amber-500" : "text-zinc-600"}`} />
-                        ))}
-                      </div>
-                    </div>
-                    {rev.comment && <p className="text-sm text-zinc-400">{rev.comment}</p>}
-                    <p className="text-[10px] text-zinc-600 mt-2">
-                      {new Date(rev.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
           </TabsContent>
         </Tabs>
       </div>

@@ -55,11 +55,20 @@ export default defineSchema({
 
   portfolio_items: defineTable({
     barber_id: v.string(),
-    url: v.string(),
     description: v.optional(v.string()),
+    url: v.optional(v.string()), // Retrocompatibilidad
     format: v.optional(v.string()), 
     width: v.optional(v.number()),
-    height: v.optional(v.number())
+    height: v.optional(v.number()),
+    media: v.optional(
+      v.array(
+        v.object({
+          url: v.string(),
+          storageId: v.optional(v.id("_storage")),
+          type: v.string(), // "image" o "video"
+        })
+      )
+    )
   }).index("by_barber", ["barber_id"]),
 
   reviews: defineTable({
