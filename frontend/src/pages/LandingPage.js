@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,15 @@ import { Logo } from "@/components/Logo";
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  // Redirigir automáticamente a usuarios logueados
+  useEffect(() => {
+    if (loading) return;
+    if (user) {
+      navigate(user.role === "barber" ? "/dashboard" : "/explore", { replace: true });
+    }
+  }, [user, loading, navigate]);
 
   return (
     <div className="min-h-screen bg-zinc-950">

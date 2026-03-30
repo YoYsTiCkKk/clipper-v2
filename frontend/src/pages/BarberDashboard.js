@@ -17,6 +17,7 @@ import {
 import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
+import { BottomNav } from "@/components/BottomNav";
 
 const statusMap = {
   pending: { label: "Pendiente", class: "bg-yellow-500/10 text-yellow-500 border-0" },
@@ -71,10 +72,19 @@ export default function BarberDashboard() {
   const [customSchedule, setCustomSchedule] = useState({});
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) { navigate("/auth"); return; }
-    if (user.role !== "barber") { navigate("/bookings"); return; }
+    if (authLoading) return;  // Esperar a que Clerk + Convex carguen
+    if (!user) { navigate("/auth", { replace: true }); return; }
+    if (user.role !== "barber") { navigate("/bookings", { replace: true }); return; }
   }, [user, navigate, authLoading]);
+
+  // Mostrar spinner mientras auth o datos de Convex cargan
+  if (authLoading || !user || user.role !== "barber") {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   // Sync profile data when Convex query loads
   useEffect(() => {
@@ -524,6 +534,8 @@ export default function BarberDashboard() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <BottomNav />
     </div>
   );
 }

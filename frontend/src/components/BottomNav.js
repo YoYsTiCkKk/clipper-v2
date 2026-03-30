@@ -7,6 +7,9 @@ export function BottomNav() {
   const location = useLocation();
   const { user } = useAuth();
 
+  // No renderizar si no hay usuario logueado
+  if (!user) return null;
+
   const clientItems = [
     { icon: Search, label: "Explorar", path: "/explore" },
     { icon: Calendar, label: "Reservas", path: "/bookings" },
@@ -16,6 +19,7 @@ export function BottomNav() {
   const barberItems = [
     { icon: Scissors, label: "Panel", path: "/dashboard" },
     { icon: Search, label: "Explorar", path: "/explore" },
+    { icon: Calendar, label: "Reservas", path: "/dashboard" },
     { icon: User, label: "Perfil", path: "/dashboard" },
   ];
 

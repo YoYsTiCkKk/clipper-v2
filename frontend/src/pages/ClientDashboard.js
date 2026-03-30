@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
@@ -9,12 +9,25 @@ import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 
 export default function ClientDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const navigate = useNavigate();
   const bookings = useQuery(api.bookings.getMyBookings) || [];
   const updateStatus = useMutation(api.bookings.updateStatus);
 
-  if (!user) return null;
+  useEffect(() => {
+    if (loading) return;
+    if (!user) { navigate("/auth", { replace: true }); return; }
+    // Si es barbero, mandarlo a su panel
+    if (user.role === "barber") { navigate("/dashboard", { replace: true }); return; }
+  }, [user, loading, navigate]);
+
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   const handleCancel = async (id) => {
     if (window.confirm("¿Seguro que quieres cancelar esta reserva?")) {

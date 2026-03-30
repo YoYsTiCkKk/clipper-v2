@@ -9,19 +9,28 @@ export function AuthProvider({ children }) {
   const { isLoaded, isSignedIn } = useUser();
   const { signOut } = useClerkAuth();
   
-  // Obtener el perfil completo (roles, metadata) de la BD de Convex
-  // useQuery devuelve undefined mientras carga, null si no hay, y el objeto si existe.
-  const dbUser = useQuery(api.users.getMe) || null;
+  // useQuery devuelve:
+  //   undefined → aun cargando
+  //   null     → cargado pero no existe usuario en la BD
+  //   object   → usuario encontrado
+  // CRITICO: NO usar || null aquí, porque necesitamos distinguir undefined de null
+  const dbUser = useQuery(api.users.getMe);
 
-  // Combinamos la bandera de carga de Clerk con el fetching de Convex
+  // loading = true mientras:
+  //   1. Clerk aún no ha cargado
+  //   2. Clerk dice que SÍ estamos loggeados, pero Convex aún devuelve undefined (cargando)
   const loading = !isLoaded || (isSignedIn && dbUser === undefined);
 
+  // isAuthenticated solo es true cuando tenemos el objeto completo de la BD
+  const isAuthenticated = isSignedIn === true && dbUser != null;
+
   const value = {
-    user: dbUser,
-    login: () => {}, // Clerk SignIn UI lo hace en /auth
+    user: dbUser ?? null,  // Exponer null (no undefined) para consumidores, PERO solo tras loading=false
+    isAuthenticated,
+    login: () => {},
     logout: () => signOut(),
-    checkAuth: async () => {}, // Automático y reactivo en Convex
-    loading: loading
+    checkAuth: async () => {},
+    loading
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
