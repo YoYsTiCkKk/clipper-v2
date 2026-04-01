@@ -15,7 +15,21 @@ export const getGlobalFeed = query({
   args: {},
   handler: async (ctx) => {
     const items = await ctx.db.query("portfolio_items").order("desc").take(50);
-    return items;
+    const result = await Promise.all(items.map(async (item) => {
+      const barber = await ctx.db.query("users").withIndex("by_user_id", q => q.eq("user_id", item.barber_id)).first();
+      let mainUrl = item.url || "";
+      if (!mainUrl && item.media && item.media.length > 0) {
+        mainUrl = item.media[0].url;
+      }
+      return {
+        ...item,
+        image_id: item._id,
+        url: mainUrl,
+        barber_name: barber?.name || "Barbero",
+        barber_avatar: barber?.picture || "",
+      };
+    }));
+    return result;
   }
 });
 
@@ -84,5 +98,31 @@ export const deletePortfolioImage = mutation({
     }
     
     await ctx.db.delete(args.id);
+  }
+});
+
+export const toggleSaveStyle = mutation({
+  args: { image_id: v.id("portfolio_items") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No auth");
+    
+    const existing = await ctx.db
+      .query("saved_styles")
+      .withIndex("by_client", q => q.eq("client_id", identity.subject))
+      .filter(q => q.eq(q.field("portfolio_item_id"), args.image_id))
+      .first();
+      
+    if (existing) {
+      await ctx.db.delete(existing._id);
+      return { saved: false };
+    } else {
+      await ctx.db.insert("saved_styles", {
+        client_id: identity.subject,
+        portfolio_item_id: args.image_id,
+        created_at: new Date().toISOString()
+      });
+      return { saved: true };
+    }
   }
 });

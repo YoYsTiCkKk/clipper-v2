@@ -58,17 +58,25 @@ export const storeUser = mutation({
   },
 });
 
-// Obtener mi perfil
 export const getMe = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
 
-    return await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_user_id", (q) => q.eq("user_id", identity.subject))
       .first();
+
+    if (user) {
+      const savedStyles = await ctx.db
+        .query("saved_styles")
+        .withIndex("by_client", q => q.eq("client_id", identity.subject))
+        .collect();
+      return { ...user, saved_styles: savedStyles.map(s => s.portfolio_item_id) };
+    }
+    return null;
   },
 });
 

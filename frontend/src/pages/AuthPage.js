@@ -22,7 +22,7 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (isSignedIn && dbUser) {
-      navigate(dbUser.role === "barber" ? "/dashboard" : "/explore", { replace: true });
+      navigate(dbUser.role === "barber" ? "/dashboard" : "/feed", { replace: true });
     }
   }, [isSignedIn, dbUser, navigate]);
 

@@ -18,8 +18,8 @@ export function AuthProvider({ children }) {
 
   // loading = true mientras:
   //   1. Clerk aún no ha cargado
-  //   2. Clerk dice que SÍ estamos loggeados, pero Convex aún devuelve undefined (cargando)
-  const loading = !isLoaded || (isSignedIn && dbUser === undefined);
+  //   2. Clerk dice que SÍ estamos loggeados, pero Convex aún NO tiene el usuario en la BD (está en null/undefined porque se está sincronizando)
+  const loading = !isLoaded || (isSignedIn && !dbUser);
 
   // isAuthenticated solo es true cuando tenemos el objeto completo de la BD
   const isAuthenticated = isSignedIn === true && dbUser != null;

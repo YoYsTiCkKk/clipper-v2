@@ -11,6 +11,7 @@ export function BottomNav() {
   if (!user) return null;
 
   const clientItems = [
+    { icon: Scissors, label: "Feed", path: "/feed" },
     { icon: Search, label: "Explorar", path: "/explore" },
     { icon: Calendar, label: "Reservas", path: "/bookings" },
     { icon: User, label: "Perfil", path: "/bookings" },

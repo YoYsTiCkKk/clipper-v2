@@ -1,56 +1,37 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Heart, Scissors, Calendar, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import axios from "axios";
-
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../convex/_generated/api";
 
 export default function FeedPage() {
-  const { user, checkAuth } = useAuth();
-  const [feed, setFeed] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    fetchFeed();
-  }, []);
-
-  const fetchFeed = async () => {
-    try {
-      const res = await axios.get(`${API}/feed`);
-      setFeed(res.data);
-    } catch (err) {
-      toast.error("Error al cargar el feed");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const feed = useQuery(api.portfolio.getGlobalFeed);
+  const toggleSaveStyleMutation = useMutation(api.portfolio.toggleSaveStyle);
 
   const toggleSave = async (imageId) => {
     if (!user) {
       toast.error("Inicia sesión para guardar estilos");
-      navigate("/login");
+      navigate("/auth");
       return;
     }
     
-    const isSaved = user.saved_styles?.includes(imageId);
     try {
-      if (isSaved) {
-        await axios.delete(`${API}/users/saved-styles/${imageId}`, { withCredentials: true });
-        toast.info("Estilo eliminado de guardados");
-      } else {
-        await axios.post(`${API}/users/saved-styles`, { image_id: imageId }, { withCredentials: true });
+      const res = await toggleSaveStyleMutation({ image_id: imageId });
+      if (res.saved) {
         toast.success("Estilo guardado");
+      } else {
+        toast.info("Estilo eliminado de guardados");
       }
-      await checkAuth(); // Refresh user context dynamically
     } catch {
       toast.error("Hubo un problema al guardar");
     }
   };
 
-  if (loading) {
+  if (feed === undefined) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
@@ -73,11 +54,11 @@ export default function FeedPage() {
         ) : (
           <div className="columns-2 md:columns-3 gap-4 space-y-4">
             {feed.map((item) => {
-              const imgUrl = item.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${item.url}` : item.url;
+              const imgUrl = item.url?.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${item.url}` : item.url;
               const isSaved = user?.saved_styles?.includes(item.image_id);
 
               return (
-                <div key={Math.random()} className="break-inside-avoid relative group rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800">
+                <div key={item.image_id || Math.random()} className="break-inside-avoid relative group rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800">
                   <img src={imgUrl} alt="Corte" className="w-full object-cover" loading="lazy" />
                   
                   {/* Overlay */}

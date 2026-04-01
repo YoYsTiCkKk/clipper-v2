@@ -1,0 +1,829 @@
+﻿diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 42a9b32..697c2b4 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -17,11 +17,32 @@ black>=24.1.1
+ isort>=5.13.2
+ flake8>=7.0.0
+ mypy>=1.8.0
++fastapi==0.110.1
++uvicorn==0.25.0
++boto3>=1.34.129
++requests-oauthlib>=2.0.0
++cryptography>=42.0.8
++python-dotenv>=1.0.1
++pymongo==4.5.0
++pydantic>=2.6.4
++email-validator>=2.2.0
++pyjwt>=2.10.1
++bcrypt==4.1.3
++passlib>=1.7.4
++tzdata>=2024.2
++motor==3.3.1
++pytest>=8.0.0
++black>=24.1.1
++isort>=5.13.2
++flake8>=7.0.0
++mypy>=1.8.0
+ python-jose>=3.3.0
+ requests>=2.31.0
+ pandas>=2.2.0
+ numpy>=1.26.0
+ python-multipart>=0.0.9
+ jq>=1.6.0
+-typer>=0.9.0
+-emergentintegrations==0.1.0
++httpx==0.27.0
++emergentintegrations
++websockets==12.0
++Pillow>=10.0.0
+diff --git a/backend/server.py b/backend/server.py
+index c6e9d1e..ea4421c 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -1,4 +1,4 @@
+-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form
++from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+ from fastapi.responses import FileResponse
+ from dotenv import load_dotenv
+ from starlette.middleware.cors import CORSMiddleware
+@@ -15,6 +15,8 @@ import random
+ from datetime import datetime, timezone, timedelta
+ import httpx
+ from passlib.hash import bcrypt
++from PIL import Image
++import io
+ from emergentintegrations.payments.stripe.checkout import (
+     StripeCheckout, CheckoutSessionRequest
+ )
+@@ -40,6 +42,77 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
+ logger = logging.getLogger(__name__)
+ 
+ 
++logger = logging.getLogger(__name__)
++
++
++# ==================== WEBSOCKET MANAGER ====================
++
++class ConnectionManager:
++    def __init__(self):
++        self.active_connections: dict[str, List[WebSocket]] = {}
++
++    async def connect(self, websocket: WebSocket, user_id: str):
++        await websocket.accept()
++        if user_id not in self.active_connections:
++            self.active_connections[user_id] = []
++        self.active_connections[user_id].append(websocket)
++
++    def disconnect(self, websocket: WebSocket, user_id: str):
++        if user_id in self.active_connections:
++            if websocket in self.active_connections[user_id]:
++                self.active_connections[user_id].remove(websocket)
++            if not self.active_connections[user_id]:
++                del self.active_connections[user_id]
++
++    async def send_personal_message(self, message: dict, user_id: str):
++        if user_id in self.active_connections:
++            disconnected = []
++            for connection in self.active_connections[user_id]:
++                try:
++                    await connection.send_json(message)
++                except Exception:
++                    disconnected.append(connection)
++            for d in disconnected:
++                self.disconnect(d, user_id)
++
++manager = ConnectionManager()
++
++
++# ==================== FEED ====================
++
++@api_router.get("/feed")
++async def get_global_feed():
++    barbers = await db.users.find({"role": "barber"}, {"user_id": 1, "name": 1, "avatar": 1, "barber_profile.portfolio": 1}).to_list(100)
++    feed = []
++    for b in barbers:
++        portfolio = b.get("barber_profile", {}).get("portfolio", [])
++        for item in portfolio:
++            feed.append({
++                "barber_id": b["user_id"],
++                "barber_name": b["name"],
++                "barber_avatar": b.get("avatar"),
++                "image_id": item.get("image_id"),
++                "url": item.get("url"),
++                "description": item.get("description", "")
++            })
++    random.shuffle(feed)
++    return feed
++
++class SaveStyleRequest(BaseModel):
++    image_id: str
++
++@api_router.post("/users/saved-styles")
++async def save_style(req: SaveStyleRequest, request: Request):
++    user = await get_current_user(request)
++    await db.users.update_one({"user_id": user["user_id"]}, {"$addToSet": {"saved_styles": req.image_id}})
++    return {"message": "Estilo guardado"}
++
++@api_router.delete("/users/saved-styles/{image_id}")
++async def remove_saved_style(image_id: str, request: Request):
++    user = await get_current_user(request)
++    await db.users.update_one({"user_id": user["user_id"]}, {"$pull": {"saved_styles": image_id}})
++    return {"message": "Estilo eliminado"}
++
+ # ==================== MODELS ====================
+ 
+ class UserRegister(BaseModel):
+@@ -74,8 +147,8 @@ class BookingCreate(BaseModel):
+     service_id: str
+     date: str
+     time: str
+-    payment_method: str
+-
++    payment_method: str  # 'card' or 'cash'
++    location_type: Optional[str] = "barbershop"  # 'barbershop' or 'home'
+ class CheckoutRequest(BaseModel):
+     booking_id: str
+     origin_url: str
+@@ -146,13 +219,16 @@ async def set_session(response: Response, user_id: str) -> str:
+     return token
+ 
+ async def create_notification(user_id: str, notif_type: str, title: str, message: str, metadata: dict = None):
+-    await db.notifications.insert_one({
++    notif = {
+         "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+         "user_id": user_id, "type": notif_type,
+         "title": title, "message": message,
+         "read": False, "metadata": metadata or {},
+         "created_at": datetime.now(timezone.utc).isoformat()
+-    })
++    }
++    await db.notifications.insert_one(notif)
++    notif.pop("_id", None)
++    await manager.send_personal_message(notif, user_id)
+ 
+ def generate_referral_code():
+     chars = string.ascii_uppercase + string.digits
+@@ -335,7 +411,7 @@ async def get_available_slots(barber_id: str, date: str):
+             slots.append(f"{h:02d}:{m:02d}")
+ 
+     bookings = await db.bookings.find(
+-        {"barber_id": barber_id, "date": date, "status": {"$in": ["pending", "confirmed"]}},
++        {"barber_id": barber_id, "date": date, "time": {"$in": slots}, "status": {"$in": ["pending", "confirmed"]}},
+         {"_id": 0, "time": 1}
+     ).to_list(100)
+     booked = {b["time"] for b in bookings}
+@@ -448,8 +524,27 @@ async def create_booking(data: BookingCreate, request: Request):
+     if existing:
+         raise HTTPException(status_code=409, detail="Horario no disponible")
+ 
++    # Determine fees based on location type
+     service_price = float(service["price"])
+-    total = service_price + TRANSPORT_FEE + MANAGEMENT_FEE
++    location_type = data.location_type
++    
++    transport_fee = 0.0
++    if location_type == "home":
++        # Check if barber offers home service and get fee
++        profile = barber.get("barber_profile", {})
++        if not profile.get("offers_home_service", False):
++            raise HTTPException(status_code=400, detail="Este barbero no ofrece servicio a domicilio")
++        transport_fee = float(profile.get("home_service_fee", TRANSPORT_FEE))
++
++    subtotal = service_price + transport_fee + MANAGEMENT_FEE
++    
++    user_credits = user.get("credits", 0.0)
++    discount = min(user_credits, subtotal)
++    total = subtotal - discount
++    new_credits = user_credits - discount
++    
++    if discount > 0:
++        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"credits": new_credits}})
+ 
+     booking_id = f"book_{uuid.uuid4().hex[:10]}"
+     booking = {
+@@ -460,7 +555,9 @@ async def create_booking(data: BookingCreate, request: Request):
+         "service_price": service_price, "date": data.date, "time": data.time,
+         "status": "confirmed" if data.payment_method == "cash" else "pending",
+         "payment_method": data.payment_method,
+-        "transport_fee": TRANSPORT_FEE, "management_fee": MANAGEMENT_FEE,
++        "location_type": location_type,
++        "transport_fee": transport_fee, "management_fee": MANAGEMENT_FEE,
++        "subtotal": subtotal, "discount_applied": discount,
+         "total_amount": total,
+         "payment_status": "cash" if data.payment_method == "cash" else "pending",
+         "created_at": datetime.now(timezone.utc).isoformat()
+@@ -693,6 +790,24 @@ async def mark_all_read(request: Request):
+     await db.notifications.update_many({"user_id": user["user_id"], "read": False}, {"$set": {"read": True}})
+     return {"message": "ok"}
+ 
++@app.websocket("/api/ws/notifications")
++async def websocket_endpoint(websocket: WebSocket):
++    session_token = websocket.cookies.get("session_token")
++    if not session_token:
++        await websocket.close(code=1008)
++        return
++    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
++    if not session:
++        await websocket.close(code=1008)
++        return
++    user_id = session["user_id"]
++    await manager.connect(websocket, user_id)
++    try:
++        while True:
++            await websocket.receive_text()
++    except WebSocketDisconnect:
++        manager.disconnect(websocket, user_id)
++
+ 
+ # ==================== REFERRAL ROUTES ====================
+ 
+@@ -754,6 +869,17 @@ async def set_custom_availability(data: AvailabilityDay, request: Request):
+     )
+     return {"message": f"Disponibilidad para {data.date} actualizada"}
+ 
++@api_router.delete("/barbers/availability/custom/{date}")
++async def delete_custom_availability(date: str, request: Request):
++    user = await get_current_user(request)
++    if user["role"] != "barber":
++        raise HTTPException(status_code=403)
++    await db.users.update_one(
++        {"user_id": user["user_id"]},
++        {"$unset": {f"barber_profile.custom_schedule.{date}": ""}}
++    )
++    return {"message": f"Disponibilidad para {date} eliminada"}
++
+ @api_router.get("/barbers/{barber_id}/availability")
+ async def get_barber_availability(barber_id: str):
+     barber = await db.users.find_one({"user_id": barber_id, "role": "barber"}, {"_id": 0})
+@@ -780,12 +906,26 @@ async def upload_portfolio_image(request: Request, file: UploadFile = File(...),
+     if file.content_type not in allowed:
+         raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+ 
+-    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "jpg"
+-    filename = f"{uuid.uuid4().hex[:12]}.{ext}"
+-    filepath = UPLOAD_DIR / filename
+-    with open(filepath, "wb") as f:
+-        shutil.copyfileobj(file.file, f)
+-
++    os.makedirs(UPLOAD_DIR, exist_ok=True)
++    
++    try:
++        image_data = await file.read()
++        image = Image.open(io.BytesIO(image_data))
++        if image.mode in ("RGBA", "P"):
++            image = image.convert("RGB")
++            
++        if image.width > 1080:
++            ratio = 1080 / float(image.width)
++            new_height = int((float(image.height) * float(ratio)))
++            image = image.resize((1080, new_height), Image.Resampling.LANCZOS)
++            
++        filename = f"{uuid.uuid4().hex}.webp"
++        filepath = os.path.join(UPLOAD_DIR, filename)
++        image.save(filepath, "WEBP", quality=80)
++    except Exception as e:
++        logger.error(f"Image processing error: {e}")
++        raise HTTPException(status_code=400, detail="Formato de imagen inv├ílido")
++        
+     url = f"/api/uploads/{filename}"
+     item = {"image_id": f"img_{uuid.uuid4().hex[:8]}", "url": url, "description": description}
+     await db.users.update_one({"user_id": user["user_id"]}, {"$push": {"barber_profile.portfolio": item}})
+diff --git a/frontend/src/components/NotificationBell.js b/frontend/src/components/NotificationBell.js
+index dfd4df3..0f31984 100644
+--- a/frontend/src/components/NotificationBell.js
++++ b/frontend/src/components/NotificationBell.js
+@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
+ import { useAuth } from "@/contexts/AuthContext";
+ import { Bell, X, Check } from "lucide-react";
+ import { Badge } from "@/components/ui/badge";
++import { toast } from "sonner";
+ import axios from "axios";
+ 
+ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+@@ -37,9 +38,24 @@ export function NotificationBell() {
+ 
+   useEffect(() => {
+     fetchUnread();
+-    const interval = setInterval(fetchUnread, 30000);
+-    return () => clearInterval(interval);
+-  }, [fetchUnread]);
++    fetchAll();
++
++    const wsUrl = API.replace('http', 'ws') + '/ws/notifications';
++    const ws = new WebSocket(wsUrl);
++    
++    ws.onmessage = (event) => {
++      try {
++        const notif = JSON.parse(event.data);
++        setUnread((prev) => prev + 1);
++        setNotifications((prev) => [notif, ...prev]);
++        toast(notif.title, { description: notif.message });
++      } catch (e) {}
++    };
++
++    return () => {
++      ws.close();
++    };
++  }, [fetchUnread, fetchAll]);
+ 
+   const handleOpen = () => {
+     setOpen(!open);
+diff --git a/frontend/src/pages/BarberDashboard.js b/frontend/src/pages/BarberDashboard.js
+index de536fb..27ce9fb 100644
+--- a/frontend/src/pages/BarberDashboard.js
++++ b/frontend/src/pages/BarberDashboard.js
+@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
+ import {
+   Scissors, Calendar, Clock, Plus, Trash2, LogOut,
+   MapPin, Phone, User, Image as ImageIcon, Save, Loader2, Check, X,
+-  Upload, CalendarDays
++  Upload, CalendarDays, Star, MessageSquare
+ } from "lucide-react";
+ import { toast } from "sonner";
+ import { NotificationBell } from "@/components/NotificationBell";
+@@ -30,6 +30,7 @@ export default function BarberDashboard() {
+   const { user, logout, checkAuth, loading: authLoading } = useAuth();
+   const [barberData, setBarberData] = useState(null);
+   const [bookings, setBookings] = useState([]);
++  const [reviews, setReviews] = useState([]);
+   const [loading, setLoading] = useState(true);
+ 
+   // Service form
+@@ -52,12 +53,14 @@ export default function BarberDashboard() {
+ 
+   const fetchData = useCallback(async () => {
+     try {
+-      const [barberRes, bookingsRes] = await Promise.all([
++      const [barberRes, bookingsRes, reviewsRes] = await Promise.all([
+         axios.get(`${API}/auth/me`, { withCredentials: true }),
+         axios.get(`${API}/bookings`, { withCredentials: true }),
++        axios.get(`${API}/barbers/${user?.user_id}/reviews`, { withCredentials: true }).catch(() => ({ data: [] })),
+       ]);
+       setBarberData(barberRes.data);
+       setBookings(bookingsRes.data);
++      setReviews(reviewsRes.data);
+       const bp = barberRes.data.barber_profile || {};
+       const coords = bp.location?.coordinates || [0, 0];
+       setProfileForm({
+@@ -65,13 +68,15 @@ export default function BarberDashboard() {
+         bio: bp.bio || "",
+         address: bp.address || "",
+         phone: barberRes.data.phone || "",
+-        latitude: coords[1] !== 0 ? String(coords[1]) : "",
+-        longitude: coords[0] !== 0 ? String(coords[0]) : "",
++        lat: coords[1] !== 0 ? String(coords[1]) : "",
++        lng: coords[0] !== 0 ? String(coords[0]) : "",
++        offersHomeService: bp.offers_home_service || false,
++        homeServiceFee: bp.home_service_fee !== undefined ? String(bp.home_service_fee) : ""
+       });
+       setCustomSchedule(bp.custom_schedule || {});
+     } catch { /* ignore */ }
+     finally { setLoading(false); }
+-  }, []);
++  }, [user]);
+ 
+   useEffect(() => {
+     if (authLoading) return;
+@@ -164,16 +169,31 @@ export default function BarberDashboard() {
+     } catch { toast.error("Error al actualizar disponibilidad"); }
+   };
+ 
++  const handleDeleteAvailability = async (dateStr) => {
++    try {
++      await axios.delete(`${API}/barbers/availability/custom/${dateStr}`, { withCredentials: true });
++      toast.success(`Disponibilidad para ${dateStr} eliminada`);
++      setCustomSchedule((prev) => {
++        const updated = { ...prev };
++        delete updated[dateStr];
++        return updated;
++      });
++    } catch { toast.error("Error al eliminar disponibilidad"); }
++  };
++
+   const handleSaveProfile = async () => {
+     setSaving(true);
+     try {
+       await axios.put(`${API}/barbers/profile`, {
+         name: profileForm.name || undefined,
+-        bio: profileForm.bio || undefined,
+-        address: profileForm.address || undefined,
+         phone: profileForm.phone || undefined,
+-        latitude: profileForm.latitude ? parseFloat(profileForm.latitude) : undefined,
+-        longitude: profileForm.longitude ? parseFloat(profileForm.longitude) : undefined,
++        barber_profile: {
++          bio: profileForm.bio || undefined,
++          address: profileForm.address || undefined,
++          location: (profileForm.lat && profileForm.lng) ? { type: "Point", coordinates: [parseFloat(profileForm.lng), parseFloat(profileForm.lat)] } : undefined,
++          offers_home_service: profileForm.offersHomeService,
++          home_service_fee: profileForm.offersHomeService ? (parseFloat(profileForm.homeServiceFee) || 0) : undefined
++        }
+       }, { withCredentials: true });
+       toast.success("Perfil actualizado");
+       await checkAuth();
+@@ -255,6 +275,7 @@ export default function BarberDashboard() {
+             <TabsTrigger value="portfolio" data-testid="tab-portfolio" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Portfolio</TabsTrigger>
+             <TabsTrigger value="availability" data-testid="tab-availability" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Horarios</TabsTrigger>
+             <TabsTrigger value="profile" data-testid="tab-profile" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Perfil</TabsTrigger>
++            <TabsTrigger value="reviews" data-testid="tab-reviews" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Rese├▒as</TabsTrigger>
+           </TabsList>
+ 
+           {/* BOOKINGS TAB */}
+@@ -403,11 +424,16 @@ export default function BarberDashboard() {
+                   {Object.entries(customSchedule).sort().map(([date, cfg]) => (
+                     <div key={date} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
+                       <span className="text-sm text-white">{date}</span>
+-                      {cfg.available ? (
+-                        <Badge className="bg-green-500/10 text-green-500 border-0 text-xs">{cfg.start_hour}:00 - {cfg.end_hour}:00</Badge>
+-                      ) : (
+-                        <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No disponible</Badge>
+-                      )}
++                      <div className="flex items-center gap-3">
++                        {cfg.available ? (
++                          <Badge className="bg-green-500/10 text-green-500 border-0 text-xs">{cfg.start_hour}:00 - {cfg.end_hour}:00</Badge>
++                        ) : (
++                          <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No disponible</Badge>
++                        )}
++                        <button onClick={() => handleDeleteAvailability(date)} className="text-zinc-600 hover:text-red-400 transition-colors">
++                          <X className="w-4 h-4" />
++                        </button>
++                      </div>
+                     </div>
+                   ))}
+                 </div>
+@@ -439,15 +465,79 @@ export default function BarberDashboard() {
+                 <Label className="text-zinc-300 text-sm mb-1.5 block">Ubicacion (coordenadas)</Label>
+                 <p className="text-xs text-zinc-500 mb-2">Introduce latitud y longitud para aparecer en el mapa</p>
+                 <div className="grid grid-cols-2 gap-3">
+-                  <Input data-testid="profile-latitude" type="number" step="any" placeholder="Latitud (ej: 40.4168)" value={profileForm.latitude} onChange={(e) => setProfileForm({ ...profileForm, latitude: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+-                  <Input data-testid="profile-longitude" type="number" step="any" placeholder="Longitud (ej: -3.7038)" value={profileForm.longitude} onChange={(e) => setProfileForm({ ...profileForm, longitude: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
++                  <Input data-testid="profile-latitude" type="number" step="any" placeholder="Latitud (ej: 40.4168)" value={profileForm.lat} onChange={(e) => setProfileForm({ ...profileForm, lat: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
++                  <Input data-testid="profile-longitude" type="number" step="any" placeholder="Longitud (ej: -3.7038)" value={profileForm.lng} onChange={(e) => setProfileForm({ ...profileForm, lng: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
+                 </div>
+               </div>
++
++              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
++                <label className="flex items-center gap-3 cursor-pointer">
++                  <input
++                    type="checkbox"
++                    checked={profileForm.offersHomeService}
++                    onChange={(e) => setProfileForm({ ...profileForm, offersHomeService: e.target.checked })}
++                    className="w-5 h-5 rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-amber-500/20"
++                  />
++                  <span className="text-sm font-medium text-white">Ofrezco cortes a domicilio</span>
++                </label>
++                {profileForm.offersHomeService && (
++                  <div>
++                    <label className="text-xs text-zinc-500 block mb-1">Tarifa de desplazamiento (Ôé¼)</label>
++                    <input
++                      type="number"
++                      value={profileForm.homeServiceFee}
++                      onChange={(e) => setProfileForm({ ...profileForm, homeServiceFee: e.target.value })}
++                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 outline-none"
++                      step="0.5"
++                    />
++                  </div>
++                )}
++              </div>
++
+               <Button data-testid="save-profile-btn" onClick={handleSaveProfile} disabled={saving} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
+                 {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil</>}
+               </Button>
+             </div>
+           </TabsContent>
++
++          {/* REVIEWS TAB */}
++          <TabsContent value="reviews" className="mt-4 space-y-4">
++            <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-4" style={{ fontFamily: "Syne" }}>
++              <MessageSquare className="w-5 h-5 text-amber-500" />
++              Rese├▒as ({reviews.length})
++            </h3>
++            {reviews.length === 0 ? (
++              <p className="text-zinc-500 text-sm text-center py-8">A├║n no tienes rese├▒as.</p>
++            ) : (
++              <div className="space-y-3">
++                {reviews.map((rev) => (
++                  <div key={rev.review_id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
++                    <div className="flex items-center justify-between mb-2">
++                      <div className="flex items-center gap-2">
++                        {rev.client_picture ? (
++                          <img src={rev.client_picture} alt="" className="w-8 h-8 rounded-full object-cover" />
++                        ) : (
++                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs text-zinc-400">
++                            {rev.client_name?.[0]}
++                          </div>
++                        )}
++                        <span className="text-sm font-medium text-white">{rev.client_name}</span>
++                      </div>
++                      <div className="flex items-center gap-0.5">
++                        {[1, 2, 3, 4, 5].map((s) => (
++                          <Star key={s} className={`w-3 h-3 ${s <= rev.rating ? "text-amber-500 fill-amber-500" : "text-zinc-600"}`} />
++                        ))}
++                      </div>
++                    </div>
++                    {rev.comment && <p className="text-sm text-zinc-400">{rev.comment}</p>}
++                    <p className="text-[10px] text-zinc-600 mt-2">
++                      {new Date(rev.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
++                    </p>
++                  </div>
++                ))}
++              </div>
++            )}
++          </TabsContent>
+         </Tabs>
+       </div>
+     </div>
+diff --git a/frontend/src/pages/BarberProfilePage.js b/frontend/src/pages/BarberProfilePage.js
+index 474a166..da09a65 100644
+--- a/frontend/src/pages/BarberProfilePage.js
++++ b/frontend/src/pages/BarberProfilePage.js
+@@ -174,7 +174,7 @@ export default function BarberProfilePage() {
+                   className="relative aspect-square rounded-xl overflow-hidden group"
+                 >
+                   <img
+-                    src={img.url}
++                    src={img.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${img.url}` : img.url}
+                     alt={img.description}
+                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                   />
+@@ -252,7 +252,7 @@ export default function BarberProfilePage() {
+           onClick={() => setSelectedImage(null)}
+         >
+           <img
+-            src={selectedImage.url}
++            src={selectedImage.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${selectedImage.url}` : selectedImage.url}
+             alt={selectedImage.description}
+             className="max-w-full max-h-[80vh] object-contain rounded-xl"
+           />
+diff --git a/frontend/src/pages/BookingPage.js b/frontend/src/pages/BookingPage.js
+index 313e152..72700fa 100644
+--- a/frontend/src/pages/BookingPage.js
++++ b/frontend/src/pages/BookingPage.js
+@@ -25,7 +25,9 @@ export default function BookingPage() {
+   const [selectedService, setSelectedService] = useState(location.state?.serviceId || null);
+   const [selectedDate, setSelectedDate] = useState(null);
+   const [selectedTime, setSelectedTime] = useState(null);
+-  const [paymentMethod, setPaymentMethod] = useState("app");
++  const [paymentMethod, setPaymentMethod] = useState("card"); // 'card' or 'cash'
++  const [locationType, setLocationType] = useState("barbershop"); // 'barbershop' or 'home'
++  const [verifying, setVerifying] = useState(false);
+   const [availableSlots, setAvailableSlots] = useState([]);
+   const [pageLoading, setPageLoading] = useState(true);
+   const [submitting, setSubmitting] = useState(false);
+@@ -70,7 +72,14 @@ export default function BookingPage() {
+   const services = profile.services || [];
+   const currentService = services.find((s) => s.service_id === selectedService);
+   const servicePrice = currentService?.price || 0;
+-  const total = servicePrice + TRANSPORT_FEE + MANAGEMENT_FEE;
++  
++  const offersHomeService = profile.offers_home_service || false;
++  const transportFee = locationType === "home" ? parseFloat(profile.home_service_fee || 2.5) : 0;
++  
++  const subtotal = servicePrice + transportFee + MANAGEMENT_FEE;
++  const userCredits = user?.credits || 0;
++  const discount = Math.min(userCredits, subtotal);
++  const total = subtotal - discount;
+ 
+   const handleConfirm = async () => {
+     if (!selectedService || !selectedDate || !selectedTime) {
+@@ -83,12 +92,13 @@ export default function BookingPage() {
+       const res = await axios.post(`${API}/bookings`, {
+         barber_id: barberId,
+         service_id: selectedService,
+-        date: dateStr,
++        date: selectedDate,
+         time: selectedTime,
+         payment_method: paymentMethod,
++        location_type: locationType
+       }, { withCredentials: true });
+ 
+-      if (paymentMethod === "app") {
++      if (paymentMethod === "card") {
+         const checkout = await axios.post(`${API}/payments/checkout`, {
+           booking_id: res.data.booking_id,
+           origin_url: window.location.origin,
+@@ -290,12 +300,18 @@ export default function BookingPage() {
+             </div>
+             <div className="flex justify-between">
+               <span className="text-zinc-400">Transporte</span>
+-              <span className="text-white">{TRANSPORT_FEE.toFixed(2)}Ôé¼</span>
++              <span className="text-white">{transportFee.toFixed(2)}Ôé¼</span>
+             </div>
+             <div className="flex justify-between">
+               <span className="text-zinc-400">Gestion</span>
+               <span className="text-white">{MANAGEMENT_FEE.toFixed(2)}Ôé¼</span>
+             </div>
++            {discount > 0 && (
++              <div className="flex justify-between text-green-500">
++                <span>Cr├®dito aplicado</span>
++                <span>-{discount.toFixed(2)}Ôé¼</span>
++              </div>
++            )}
+             <div className="h-px bg-zinc-800 my-2" />
+             <div className="flex justify-between">
+               <span className="text-white font-bold">Total</span>
+@@ -305,7 +321,7 @@ export default function BookingPage() {
+             </div>
+             {paymentMethod === "cash" && (
+               <p className="text-xs text-zinc-500 mt-1">
+-                Cobro en app: {(TRANSPORT_FEE + MANAGEMENT_FEE).toFixed(2)}Ôé¼ ┬À En efectivo: {servicePrice.toFixed(2)}Ôé¼
++                Cobro en app: {Math.max(0, transportFee + MANAGEMENT_FEE - discount).toFixed(2)}Ôé¼ ┬À En efectivo: {servicePrice.toFixed(2)}Ôé¼
+               </p>
+             )}
+           </div>
+diff --git a/frontend/src/pages/FeedPage.js b/frontend/src/pages/FeedPage.js
+new file mode 100644
+index 0000000..88ba79f
+--- /dev/null
++++ b/frontend/src/pages/FeedPage.js
+@@ -0,0 +1,125 @@
++import React, { useState, useEffect } from "react";
++import { useAuth } from "@/contexts/AuthContext";
++import { Heart, Scissors, Calendar, Loader2 } from "lucide-react";
++import { Link, useNavigate } from "react-router-dom";
++import { toast } from "sonner";
++import axios from "axios";
++
++const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
++
++export default function FeedPage() {
++  const { user, checkAuth } = useAuth();
++  const [feed, setFeed] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const navigate = useNavigate();
++
++  useEffect(() => {
++    fetchFeed();
++  }, []);
++
++  const fetchFeed = async () => {
++    try {
++      const res = await axios.get(`${API}/feed`);
++      setFeed(res.data);
++    } catch (err) {
++      toast.error("Error al cargar el feed");
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  const toggleSave = async (imageId) => {
++    if (!user) {
++      toast.error("Inicia sesi├│n para guardar estilos");
++      navigate("/login");
++      return;
++    }
++    
++    const isSaved = user.saved_styles?.includes(imageId);
++    try {
++      if (isSaved) {
++        await axios.delete(`${API}/users/saved-styles/${imageId}`, { withCredentials: true });
++        toast.info("Estilo eliminado de guardados");
++      } else {
++        await axios.post(`${API}/users/saved-styles`, { image_id: imageId }, { withCredentials: true });
++        toast.success("Estilo guardado");
++      }
++      await checkAuth(); // Refresh user context dynamically
++    } catch {
++      toast.error("Hubo un problema al guardar");
++    }
++  };
++
++  if (loading) {
++    return (
++      <div className="min-h-screen bg-black flex items-center justify-center">
++        <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
++      </div>
++    );
++  }
++
++  return (
++    <div className="min-h-screen bg-black text-white pb-24">
++      <div className="max-w-3xl mx-auto px-4 pt-12">
++        <h1 className="text-3xl font-black text-white mb-2" style={{ fontFamily: "Syne" }}>
++          Inspiraci├│n
++        </h1>
++        <p className="text-zinc-500 text-sm mb-8">
++          Descubre los mejores cortes de los barberos en tu zona.
++        </p>
++
++        {feed.length === 0 ? (
++          <div className="text-center py-20 text-zinc-500">A├║n no hay estilos publicados.</div>
++        ) : (
++          <div className="columns-2 md:columns-3 gap-4 space-y-4">
++            {feed.map((item) => {
++              const imgUrl = item.url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${item.url}` : item.url;
++              const isSaved = user?.saved_styles?.includes(item.image_id);
++
++              return (
++                <div key={Math.random()} className="break-inside-avoid relative group rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800">
++                  <img src={imgUrl} alt="Corte" className="w-full object-cover" loading="lazy" />
++                  
++                  {/* Overlay */}
++                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
++                    <p className="text-xs font-medium text-white line-clamp-2 mb-3">{item.description}</p>
++                    
++                    <div className="flex items-center justify-between">
++                      <Link to={`/barber/${item.barber_id}`} className="flex items-center gap-2 hover:opacity-80">
++                        {item.barber_avatar ? (
++                          <img src={item.barber_avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
++                        ) : (
++                          <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-400">
++                            {item.barber_name[0]}
++                          </div>
++                        )}
++                        <span className="text-xs font-semibold text-zinc-300">{item.barber_name}</span>
++                      </Link>
++
++                      <div className="flex gap-2">
++                        <button 
++                          onClick={(e) => { e.preventDefault(); toggleSave(item.image_id); }}
++                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
++                            isSaved ? 'bg-amber-500 text-black' : 'bg-black/50 text-white hover:bg-zinc-800'
++                          }`}
++                        >
++                          <Heart className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
++                        </button>
++                        <Link 
++                          to={`/barber/${item.barber_id}`}
++                          className="w-8 h-8 rounded-full bg-amber-500 text-black flex items-center justify-center hover:bg-amber-600 transition-colors"
++                        >
++                          <Calendar className="w-4 h-4" />
++                        </Link>
++                      </div>
++                    </div>
++                  </div>
++                </div>
++              );
++            })}
++          </div>
++        )}
++      </div>
++    </div>
++  );
++}
+diff --git a/frontend/src/pages/MapSearchPage.js b/frontend/src/pages/MapSearchPage.js
+index 87362ff..25f9fd0 100644
+--- a/frontend/src/pages/MapSearchPage.js
++++ b/frontend/src/pages/MapSearchPage.js
+@@ -40,7 +40,7 @@ export default function MapSearchPage() {
+   const [searchQuery, setSearchQuery] = useState("");
+   const [loading, setLoading] = useState(true);
+   const [showFilters, setShowFilters] = useState(false);
+-  const [filters, setFilters] = useState({ minRating: "", maxPrice: "", serviceType: "" });
++  const [filters, setFilters] = useState({ minRating: "", minPrice: "", maxPrice: "", serviceType: "" });
+ 
+   useEffect(() => {
+     if (navigator.geolocation) {
+@@ -56,6 +56,7 @@ export default function MapSearchPage() {
+       try {
+         const params = { lat: center[0], lng: center[1], radius: 50000 };
+         if (filters.minRating) params.min_rating = parseFloat(filters.minRating);
++        if (filters.minPrice) params.min_price = parseFloat(filters.minPrice);
+         if (filters.maxPrice) params.max_price = parseFloat(filters.maxPrice);
+         if (filters.serviceType) params.service_type = filters.serviceType;
+         const res = await axios.get(`${API}/barbers`, { params });
+@@ -126,18 +127,31 @@ export default function MapSearchPage() {
+                 </select>
+               </div>
+               <div>
+-                <label className="text-[10px] text-zinc-500 block mb-1">Precio max.</label>
+-                <select
+-                  data-testid="filter-price"
+-                  value={filters.maxPrice}
+-                  onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
+-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-2"
+-                >
+-                  <option value="">Todos</option>
+-                  <option value="15">Hasta 15Ôé¼</option>
+-                  <option value="25">Hasta 25Ôé¼</option>
+-                  <option value="40">Hasta 40Ôé¼</option>
+-                </select>
++                <label className="text-[10px] text-zinc-500 block mb-1">Precio</label>
++                <div className="flex gap-1">
++                  <select
++                    data-testid="filter-min-price"
++                    value={filters.minPrice}
++                    onChange={(e) => setFilters({...filters, minPrice: e.target.value})}
++                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-1"
++                  >
++                    <option value="">Min</option>
++                    <option value="10">10Ôé¼</option>
++                    <option value="20">20Ôé¼</option>
++                    <option value="30">30Ôé¼</option>
++                  </select>
++                  <select
++                    data-testid="filter-max-price"
++                    value={filters.maxPrice}
++                    onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
++                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white py-1.5 px-1"
++                  >
++                    <option value="">Max</option>
++                    <option value="15">15Ôé¼</option>
++                    <option value="25">25Ôé¼</option>
++                    <option value="40">40Ôé¼</option>
++                  </select>
++                </div>
+               </div>
+               <div>
+                 <label className="text-[10px] text-zinc-500 block mb-1">Servicio</label>

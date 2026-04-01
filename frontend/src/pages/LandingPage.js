@@ -13,7 +13,7 @@ export default function LandingPage() {
   useEffect(() => {
     if (loading) return;
     if (user) {
-      navigate(user.role === "barber" ? "/dashboard" : "/explore", { replace: true });
+      navigate(user.role === "barber" ? "/dashboard" : "/feed", { replace: true });
     }
   }, [user, loading, navigate]);
 
