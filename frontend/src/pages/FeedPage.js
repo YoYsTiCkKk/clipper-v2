@@ -1,6 +1,7 @@
 import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Heart, Scissors, Calendar, Loader2 } from "lucide-react";
+import { BottomNav } from "@/components/BottomNav";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useQuery, useMutation } from "convex/react";
@@ -101,6 +102,8 @@ export default function FeedPage() {
           </div>
         )}
       </div>
+
+      <BottomNav />
     </div>
   );
 }

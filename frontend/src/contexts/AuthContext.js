@@ -10,22 +10,26 @@ export function AuthProvider({ children }) {
   const { signOut } = useClerkAuth();
   
   // useQuery devuelve:
-  //   undefined → aun cargando
-  //   null     → cargado pero no existe usuario en la BD
+  //   undefined → query aún ejecutándose (Convex cargando)
+  //   null     → query terminó pero no existe usuario en la BD
   //   object   → usuario encontrado
-  // CRITICO: NO usar || null aquí, porque necesitamos distinguir undefined de null
   const dbUser = useQuery(api.users.getMe);
 
   // loading = true mientras:
   //   1. Clerk aún no ha cargado
-  //   2. Clerk dice que SÍ estamos loggeados, pero Convex aún NO tiene el usuario en la BD (está en null/undefined porque se está sincronizando)
-  const loading = !isLoaded || (isSignedIn && !dbUser);
+  //   2. Clerk dice que SÍ estamos loggeados, pero Convex aún NO tiene el
+  //      usuario en la BD. Esto cubre dos casos:
+  //      - dbUser === undefined → la query aún está corriendo
+  //      - dbUser === null → la query terminó pero SyncUserWithConvex aún no
+  //        ha creado el registro. Debemos seguir esperando porque la mutación
+  //        storeUser lo creará en breve y getMe se re-ejecutará reactivamente.
+  const loading = !isLoaded || (isSignedIn === true && !dbUser);
 
   // isAuthenticated solo es true cuando tenemos el objeto completo de la BD
-  const isAuthenticated = isSignedIn === true && dbUser != null;
+  const isAuthenticated = isSignedIn === true && !!dbUser;
 
   const value = {
-    user: dbUser ?? null,  // Exponer null (no undefined) para consumidores, PERO solo tras loading=false
+    user: dbUser ?? null,  // Exponer null (no undefined) para consumidores
     isAuthenticated,
     login: () => {},
     logout: () => signOut(),
