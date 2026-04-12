@@ -7,17 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import {
   Scissors, Calendar, Clock, Plus, Trash2, LogOut,
   MapPin, Phone, User, Image as ImageIcon, Save, Loader2, Check, X,
-  Upload, CalendarDays, Star, MessageSquare
+  Upload, CalendarDays, Star, MessageSquare, LayoutDashboard
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
-import { BottomNav } from "@/components/BottomNav";
 
 const statusMap = {
   pending: { label: "Pendiente", class: "bg-yellow-500/10 text-yellow-500 border-0" },
@@ -26,9 +24,18 @@ const statusMap = {
   cancelled: { label: "Cancelada", class: "bg-red-500/10 text-red-400 border-0" },
 };
 
+const SECTIONS = [
+  { id: "bookings", icon: Calendar, label: "Reservas" },
+  { id: "services", icon: Scissors, label: "Servicios" },
+  { id: "portfolio", icon: ImageIcon, label: "Portfolio" },
+  { id: "schedule", icon: CalendarDays, label: "Horarios" },
+  { id: "profile", icon: User, label: "Perfil" },
+];
+
 export default function BarberDashboard() {
   const navigate = useNavigate();
   const { user, logout, loading: authLoading } = useAuth();
+  const [activeSection, setActiveSection] = useState("bookings");
   
   // Convex Reactivity Queries
   const barberData = useQuery(api.users.getMe);
@@ -213,7 +220,7 @@ export default function BarberDashboard() {
         lat: profileForm.lat ? parseFloat(profileForm.lat) : undefined,
         lng: profileForm.lng ? parseFloat(profileForm.lng) : undefined
       });
-      toast.success("Perfil actualizado en Convex");
+      toast.success("Perfil actualizado");
     } catch { toast.error("Error al guardar perfil"); }
     finally { setSaving(false); }
   };
@@ -238,7 +245,7 @@ export default function BarberDashboard() {
   const pendingBookings = bookings.filter((b) => b.status === "pending" || b.status === "confirmed");
 
   return (
-    <div className="min-h-screen bg-zinc-950 pb-8">
+    <div className="min-h-screen bg-zinc-950 pb-20">
       {/* Header */}
       <div className="glass border-b border-zinc-800 sticky top-0 z-30">
         <div className="container mx-auto px-4 max-w-4xl flex items-center justify-between h-14">
@@ -260,37 +267,32 @@ export default function BarberDashboard() {
       <div className="container mx-auto px-4 max-w-4xl py-6">
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
+          <button onClick={() => setActiveSection("bookings")} className={`bg-zinc-900 border rounded-xl p-4 text-center transition-colors ${activeSection === "bookings" ? "border-amber-500/50" : "border-zinc-800 hover:border-zinc-700"}`}>
             <p className="text-2xl font-bold text-amber-500" style={{ fontFamily: "Syne" }}>
               {pendingBookings.length}
             </p>
             <p className="text-xs text-zinc-500 mt-1">Reservas</p>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
+          </button>
+          <button onClick={() => setActiveSection("services")} className={`bg-zinc-900 border rounded-xl p-4 text-center transition-colors ${activeSection === "services" ? "border-amber-500/50" : "border-zinc-800 hover:border-zinc-700"}`}>
             <p className="text-2xl font-bold text-white" style={{ fontFamily: "Syne" }}>
               {services.length}
             </p>
             <p className="text-xs text-zinc-500 mt-1">Servicios</p>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
+          </button>
+          <button onClick={() => setActiveSection("portfolio")} className={`bg-zinc-900 border rounded-xl p-4 text-center transition-colors ${activeSection === "portfolio" ? "border-amber-500/50" : "border-zinc-800 hover:border-zinc-700"}`}>
             <p className="text-2xl font-bold text-white" style={{ fontFamily: "Syne" }}>
               {portfolio.length}
             </p>
             <p className="text-xs text-zinc-500 mt-1">Posts</p>
-          </div>
+          </button>
         </div>
 
-        <Tabs defaultValue="bookings" className="w-full">
-          <TabsList className="w-full bg-zinc-900 border border-zinc-800">
-            <TabsTrigger value="bookings" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Reservas</TabsTrigger>
-            <TabsTrigger value="services" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Servicios</TabsTrigger>
-            <TabsTrigger value="portfolio" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Publicaciones</TabsTrigger>
-            <TabsTrigger value="availability" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Horarios</TabsTrigger>
-            <TabsTrigger value="profile" className="flex-1 data-[state=active]:bg-zinc-800 data-[state=active]:text-white text-xs sm:text-sm">Perfil</TabsTrigger>
-          </TabsList>
-
-          {/* BOOKINGS */}
-          <TabsContent value="bookings" className="mt-4 space-y-3">
+        {/* Active Section Content */}
+        {activeSection === "bookings" && (
+          <div className="space-y-3 animate-fade-in-up">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: "Syne" }}>
+              <Calendar className="w-5 h-5 text-amber-500" /> Reservas
+            </h2>
             {bookings.length === 0 ? (
               <p className="text-zinc-500 text-center py-8">No tienes reservas activas</p>
             ) : (
@@ -320,10 +322,14 @@ export default function BarberDashboard() {
                 </div>
               ))
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          {/* SERVICES */}
-          <TabsContent value="services" className="mt-4 space-y-4">
+        {activeSection === "services" && (
+          <div className="space-y-4 animate-fade-in-up">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: "Syne" }}>
+              <Scissors className="w-5 h-5 text-amber-500" /> Servicios
+            </h2>
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
               <h3 className="text-sm font-semibold text-zinc-300 mb-3">Agregar servicio</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -344,13 +350,17 @@ export default function BarberDashboard() {
                 </div>
               ))}
             </div>
-          </TabsContent>
+          </div>
+        )}
 
-          {/* PORTFOLIO / PUBLICACIONES */}
-          <TabsContent value="portfolio" className="mt-4 space-y-4">
+        {activeSection === "portfolio" && (
+          <div className="space-y-4 animate-fade-in-up">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: "Syne" }}>
+              <ImageIcon className="w-5 h-5 text-amber-500" /> Portfolio
+            </h2>
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
               <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
-                <Upload className="w-4 h-4 text-amber-500" />Nueva Publicación (Soporta múltiples)
+                <Upload className="w-4 h-4 text-amber-500" />Nueva Publicación
               </h3>
               
               <div className="space-y-3">
@@ -374,7 +384,7 @@ export default function BarberDashboard() {
               <Separator className="bg-zinc-800 my-2" />
               
               <div className="space-y-3">
-                <p className="text-xs text-zinc-500">O pegar una URL externa (si no quieres usar archivos)</p>
+                <p className="text-xs text-zinc-500">O pegar una URL externa</p>
                 <div className="flex gap-2">
                   <Input placeholder="URL de la imagen" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-600" />
                   <Button onClick={handleAddUrlImage} variant="outline" className="h-10 border-zinc-700 text-white hover:bg-zinc-800"><Plus className="w-4 h-4" /></Button>
@@ -413,14 +423,16 @@ export default function BarberDashboard() {
                 })}
               </div>
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          {/* AVAILABILITY */}
-          <TabsContent value="availability" className="mt-4 space-y-4">
+        {activeSection === "schedule" && (
+          <div className="space-y-4 animate-fade-in-up">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: "Syne" }}>
+              <CalendarDays className="w-5 h-5 text-amber-500" /> Horarios
+            </h2>
              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
-                <CalendarDays className="w-4 h-4 text-amber-500" />Configurar disponibilidad por dia
-              </h3>
+              <h3 className="text-sm font-semibold text-zinc-300">Configurar disponibilidad por dia</h3>
               <div>
                 <Label className="text-zinc-300 text-sm mb-1.5 block">Fecha</Label>
                 <Input type="date" value={availDate} onChange={(e) => setAvailDate(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" />
@@ -474,10 +486,14 @@ export default function BarberDashboard() {
                 </div>
               </div>
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          {/* PROFILE */}
-          <TabsContent value="profile" className="mt-4 space-y-4">
+        {activeSection === "profile" && (
+          <div className="space-y-4 animate-fade-in-up">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: "Syne" }}>
+              <User className="w-5 h-5 text-amber-500" /> Mi Perfil
+            </h2>
              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
               <div>
                 <Label className="text-zinc-300 text-sm mb-1.5 block">Nombre</Label>
@@ -528,14 +544,34 @@ export default function BarberDashboard() {
               </div>
 
               <Button onClick={handleSaveProfile} disabled={saving} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
-                {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil Convex</>}
+                {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil</>}
               </Button>
             </div>
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
       </div>
 
-      <BottomNav />
+      {/* Bottom Navigation — replaces the old BottomNav for barbers */}
+      <nav className="fixed bottom-0 left-0 right-0 z-[1000] glass border-t border-zinc-800/50 safe-area-inset-bottom">
+        <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
+          {SECTIONS.map((section) => (
+            <button
+              key={section.id}
+              data-testid={`nav-${section.id}`}
+              onClick={() => setActiveSection(section.id)}
+              className={`flex flex-col items-center gap-1 py-2 px-3 transition-colors ${
+                activeSection === section.id ? "text-amber-500" : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <section.icon className="w-5 h-5" />
+              <span className="text-[10px] font-medium">{section.label}</span>
+              {activeSection === section.id && (
+                <div className="w-1 h-1 rounded-full bg-amber-500 -mt-0.5" />
+              )}
+            </button>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 }
