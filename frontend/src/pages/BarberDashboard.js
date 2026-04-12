@@ -70,7 +70,7 @@ export default function BarberDashboard() {
 
   // Profile Form
   const [profileForm, setProfileForm] = useState({
-    name: "", bio: "", address: "", phone: "", lat: "", lng: "", offersHomeService: false, homeServiceFee: ""
+    name: "", bio: "", address: "", phone: "", useDeviceLocation: false, lat: "", lng: "", offersHomeService: false, homeServiceFee: ""
   });
   const [saving, setSaving] = useState(false);
   
@@ -104,13 +104,15 @@ export default function BarberDashboard() {
     if (barberData && barberData.barber_profile) {
       const bp = barberData.barber_profile;
       const coords = bp.location?.coordinates || [0, 0];
+      const hasCoords = coords[0] !== 0 || coords[1] !== 0;
       setProfileForm({
         name: barberData.name || "",
         bio: bp.bio || "",
         address: bp.address || "",
         phone: barberData.phone || "",
-        lat: coords[1] !== 0 ? String(coords[1]) : "",
-        lng: coords[0] !== 0 ? String(coords[0]) : "",
+        useDeviceLocation: hasCoords,
+        lat: hasCoords ? String(coords[1]) : "",
+        lng: hasCoords ? String(coords[0]) : "",
         offersHomeService: bp.offers_home_service || false,
         homeServiceFee: bp.home_service_fee !== undefined ? String(bp.home_service_fee) : ""
       });
@@ -244,6 +246,36 @@ export default function BarberDashboard() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
+      let lat = profileForm.lat ? parseFloat(profileForm.lat) : undefined;
+      let lng = profileForm.lng ? parseFloat(profileForm.lng) : undefined;
+
+      // Si tiene ubicación del dispositivo activada, obtener coords frescas
+      if (profileForm.useDeviceLocation && navigator.geolocation) {
+        try {
+          const pos = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true, timeout: 10000
+            });
+          });
+          lat = pos.coords.latitude;
+          lng = pos.coords.longitude;
+          setProfileForm(prev => ({ ...prev, lat: String(lat), lng: String(lng) }));
+        } catch {
+          // Si falla GPS pero ya tenía coords, usar las anteriores
+          if (!lat || !lng) {
+            toast.error("No se pudo obtener tu ubicación. Desactiva la opción o acepta permisos GPS.");
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
+      // Si no usa ubicación del dispositivo, limpiar coords
+      if (!profileForm.useDeviceLocation) {
+        lat = undefined;
+        lng = undefined;
+      }
+
       await updateProfile({
         name: profileForm.name || undefined,
         phone: profileForm.phone || undefined,
@@ -251,8 +283,8 @@ export default function BarberDashboard() {
         address: profileForm.address || undefined,
         offers_home_service: profileForm.offersHomeService,
         home_service_fee: profileForm.offersHomeService ? (parseFloat(profileForm.homeServiceFee) || 0) : undefined,
-        lat: profileForm.lat ? parseFloat(profileForm.lat) : undefined,
-        lng: profileForm.lng ? parseFloat(profileForm.lng) : undefined
+        lat,
+        lng
       });
       toast.success("Perfil actualizado");
     } catch { toast.error("Error al guardar perfil"); }
@@ -605,11 +637,36 @@ export default function BarberDashboard() {
               </div>
               
               <div className="bg-black/30 p-4 rounded-lg border border-zinc-800">
-                <p className="text-xs text-amber-500 mb-2 font-medium">Ubicación para clientes cercanos</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input type="number" step="any" placeholder="Latitud (40.416)" value={profileForm.lat} onChange={(e) => setProfileForm({ ...profileForm, lat: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" />
-                  <Input type="number" step="any" placeholder="Longitud (-3.703)" value={profileForm.lng} onChange={(e) => setProfileForm({ ...profileForm, lng: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" />
-                </div>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={profileForm.useDeviceLocation}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setProfileForm(prev => ({
+                        ...prev,
+                        useDeviceLocation: checked,
+                        ...(checked ? {} : { lat: "", lng: "" })
+                      }));
+                    }}
+                    className="w-5 h-5 rounded border-zinc-700 bg-zinc-800 accent-amber-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-white flex items-center gap-1.5">
+                      <MapPin className="w-4 h-4 text-amber-500" />Usar ubicación del dispositivo
+                    </span>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      {profileForm.useDeviceLocation
+                        ? "Los clientes te verán en el mapa por GPS"
+                        : "Los clientes verán solo tu dirección escrita"}
+                    </p>
+                  </div>
+                </label>
+                {profileForm.useDeviceLocation && profileForm.lat && profileForm.lng && (
+                  <p className="text-xs text-zinc-500 mt-2 ml-8">
+                    📍 {parseFloat(profileForm.lat).toFixed(5)}, {parseFloat(profileForm.lng).toFixed(5)}
+                  </p>
+                )}
               </div>
 
               <div className="bg-black/30 border border-zinc-800 rounded-lg p-4 flex flex-col gap-4">
