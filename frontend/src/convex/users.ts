@@ -149,12 +149,11 @@ export const getBarber = query({
   }
 });
 
-export const updateAvailability = mutation({
+// Guardar horario semanal completo (lunes=1 a domingo=7)
+export const updateWeeklySchedule = mutation({
   args: {
-    date: v.string(), // YYYY-MM-DD
-    available: v.boolean(),
-    start_hour: v.number(),
-    end_hour: v.number(),
+    // Objeto con claves "1"-"7", each { available, start_hour, end_hour }
+    schedule: v.any(),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -162,20 +161,47 @@ export const updateAvailability = mutation({
     const user = await ctx.db.query("users").withIndex("by_user_id", q => q.eq("user_id", identity.subject)).first();
     if (!user || user.role !== "barber") throw new Error("Acceso denegado");
     
-    const profile = user.barber_profile || { bio: "", rating: 5, address: "", offers_home_service: false };
-    const custom_schedule = profile.custom_schedule || {};
-    custom_schedule[args.date] = {
-      available: args.available,
-      start_hour: args.start_hour,
-      end_hour: args.end_hour
-    };
-    profile.custom_schedule = custom_schedule;
+    const profile = user.barber_profile || { bio: "", rating: 0, address: "", offers_home_service: false };
+    profile.weekly_schedule = args.schedule;
     
     await ctx.db.patch(user._id, { barber_profile: profile });
   }
 });
 
-export const removeAvailability = mutation({
+// Agregar/modificar excepción de fecha específica (festivo, día libre, horario especial)
+export const updateDateOverride = mutation({
+  args: {
+    date: v.string(), // YYYY-MM-DD
+    available: v.boolean(),
+    start_hour: v.optional(v.number()),
+    end_hour: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No autenticado");
+    const user = await ctx.db.query("users").withIndex("by_user_id", q => q.eq("user_id", identity.subject)).first();
+    if (!user || user.role !== "barber") throw new Error("Acceso denegado");
+    
+    const profile = user.barber_profile || { bio: "", rating: 0, address: "", offers_home_service: false };
+    const custom_schedule = profile.custom_schedule || {};
+    
+    if (args.available) {
+      custom_schedule[args.date] = {
+        available: true,
+        start_hour: args.start_hour ?? 9,
+        end_hour: args.end_hour ?? 19,
+      };
+    } else {
+      custom_schedule[args.date] = { available: false };
+    }
+    
+    profile.custom_schedule = custom_schedule;
+    await ctx.db.patch(user._id, { barber_profile: profile });
+  }
+});
+
+// Eliminar excepción de fecha (vuelve al horario semanal por defecto)
+export const removeDateOverride = mutation({
   args: { date: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -183,7 +209,7 @@ export const removeAvailability = mutation({
     const user = await ctx.db.query("users").withIndex("by_user_id", q => q.eq("user_id", identity.subject)).first();
     if (!user || user.role !== "barber") return;
     
-    const profile = user.barber_profile || { bio: "", rating: 5, address: "", offers_home_service: false };
+    const profile = user.barber_profile || { bio: "", rating: 0, address: "", offers_home_service: false };
     if (profile.custom_schedule && profile.custom_schedule[args.date]) {
       const custom_schedule = profile.custom_schedule;
       delete custom_schedule[args.date];
@@ -192,3 +218,20 @@ export const removeAvailability = mutation({
     }
   }
 });
+
+// Obtener el horario completo de un barbero (weekly + overrides)
+export const getBarberSchedule = query({
+  args: { barber_id: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.barber_id))
+      .first();
+    if (!user || !user.barber_profile) return null;
+    return {
+      weekly_schedule: user.barber_profile.weekly_schedule || {},
+      custom_schedule: user.barber_profile.custom_schedule || {},
+    };
+  }
+});
+

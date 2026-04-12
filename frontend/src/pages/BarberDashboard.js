@@ -46,8 +46,9 @@ export default function BarberDashboard() {
 
   // Mutations
   const updateProfile = useMutation(api.users.updateBarberProfile);
-  const updateAvailability = useMutation(api.users.updateAvailability);
-  const removeAvailability = useMutation(api.users.removeAvailability);
+  const saveWeeklySchedule = useMutation(api.users.updateWeeklySchedule);
+  const updateDateOverride = useMutation(api.users.updateDateOverride);
+  const removeDateOverride = useMutation(api.users.removeDateOverride);
   const addServiceObj = useMutation(api.services.addService);
   const removeServiceObj = useMutation(api.services.removeService);
   const updateBookingStatus = useMutation(api.bookings.updateStatus);
@@ -73,10 +74,24 @@ export default function BarberDashboard() {
   });
   const [saving, setSaving] = useState(false);
   
-  // Availability Form
-  const [availDate, setAvailDate] = useState("");
-  const [availConfig, setAvailConfig] = useState({ available: true, start_hour: "9", end_hour: "19" });
+  // Weekly Schedule State
+  const DAY_NAMES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const defaultWeekly = () => {
+    const s = {};
+    for (let d = 1; d <= 7; d++) {
+      s[String(d)] = d <= 5
+        ? { available: true, start_hour: 9, end_hour: 19 }
+        : d === 6 ? { available: true, start_hour: 10, end_hour: 14 } : { available: false, start_hour: 9, end_hour: 19 };
+    }
+    return s;
+  };
+  const [weeklySchedule, setWeeklySchedule] = useState(defaultWeekly());
   const [customSchedule, setCustomSchedule] = useState({});
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  
+  // Date Override Form
+  const [overrideDate, setOverrideDate] = useState("");
+  const [overrideConfig, setOverrideConfig] = useState({ available: false, start_hour: "9", end_hour: "19" });
 
   useEffect(() => {
     if (authLoading) return;
@@ -99,6 +114,9 @@ export default function BarberDashboard() {
         offersHomeService: bp.offers_home_service || false,
         homeServiceFee: bp.home_service_fee !== undefined ? String(bp.home_service_fee) : ""
       });
+      if (bp.weekly_schedule && Object.keys(bp.weekly_schedule).length > 0) {
+        setWeeklySchedule(bp.weekly_schedule);
+      }
       setCustomSchedule(bp.custom_schedule || {});
     }
   }, [barberData]);
@@ -186,25 +204,41 @@ export default function BarberDashboard() {
     } catch { toast.error("Error al eliminar post"); }
   };
 
-  const handleSetAvailability = async () => {
-    if (!availDate) { toast.error("Selecciona una fecha"); return; }
+  const handleSaveWeeklySchedule = async () => {
+    setSavingSchedule(true);
     try {
-      await updateAvailability({
-        date: availDate,
-        available: availConfig.available,
-        start_hour: parseInt(availConfig.start_hour),
-        end_hour: parseInt(availConfig.end_hour),
-      });
-      toast.success(`Disponibilidad para ${availDate} guardada`);
-      setAvailDate("");
-    } catch { toast.error("Error al actualizar disponibilidad"); }
+      await saveWeeklySchedule({ schedule: weeklySchedule });
+      toast.success("Horario semanal guardado");
+    } catch { toast.error("Error al guardar horario"); }
+    finally { setSavingSchedule(false); }
   };
 
-  const handleDeleteAvailability = async (dateStr) => {
+  const updateDay = (dayNum, field, value) => {
+    setWeeklySchedule(prev => ({
+      ...prev,
+      [String(dayNum)]: { ...prev[String(dayNum)], [field]: value }
+    }));
+  };
+
+  const handleAddDateOverride = async () => {
+    if (!overrideDate) { toast.error("Selecciona una fecha"); return; }
     try {
-      await removeAvailability({ date: dateStr });
-      toast.success(`Disponibilidad de ${dateStr} restaurada`);
-    } catch { toast.error("Error al eliminar regla"); }
+      await updateDateOverride({
+        date: overrideDate,
+        available: overrideConfig.available,
+        start_hour: overrideConfig.available ? parseInt(overrideConfig.start_hour) : undefined,
+        end_hour: overrideConfig.available ? parseInt(overrideConfig.end_hour) : undefined,
+      });
+      toast.success(`Excepción para ${overrideDate} guardada`);
+      setOverrideDate("");
+    } catch { toast.error("Error al guardar excepción"); }
+  };
+
+  const handleRemoveDateOverride = async (dateStr) => {
+    try {
+      await removeDateOverride({ date: dateStr });
+      toast.success(`Excepción de ${dateStr} eliminada`);
+    } catch { toast.error("Error al eliminar excepción"); }
   };
 
   const handleSaveProfile = async () => {
@@ -431,42 +465,100 @@ export default function BarberDashboard() {
             <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: "Syne" }}>
               <CalendarDays className="w-5 h-5 text-amber-500" /> Horarios
             </h2>
-             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-300">Configurar disponibilidad por dia</h3>
-              <div>
-                <Label className="text-zinc-300 text-sm mb-1.5 block">Fecha</Label>
-                <Input type="date" value={availDate} onChange={(e) => setAvailDate(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" />
+
+            {/* Horario semanal recurrente */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-300">Horario semanal</h3>
+              <p className="text-xs text-zinc-500">Configura tu horario habitual para cada día de la semana.</p>
+              
+              <div className="space-y-2">
+                {DAY_NAMES.map((name, idx) => {
+                  const dayNum = idx + 1;
+                  const day = weeklySchedule[String(dayNum)] || { available: false, start_hour: 9, end_hour: 19 };
+                  return (
+                    <div key={dayNum} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg transition-colors ${day.available ? 'bg-zinc-800/50' : 'bg-zinc-900'}`}>
+                      <label className="flex items-center gap-2 cursor-pointer min-w-[110px]">
+                        <input
+                          type="checkbox"
+                          checked={day.available}
+                          onChange={(e) => updateDay(dayNum, 'available', e.target.checked)}
+                          className="accent-amber-500 w-4 h-4"
+                        />
+                        <span className={`text-sm font-medium ${day.available ? 'text-white' : 'text-zinc-500'}`}>{name}</span>
+                      </label>
+                      {day.available ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <select
+                            value={day.start_hour}
+                            onChange={(e) => updateDay(dayNum, 'start_hour', parseInt(e.target.value))}
+                            className="bg-zinc-800 border border-zinc-700 rounded-md text-white text-xs py-1.5 px-2 flex-1"
+                          >
+                            {Array.from({length: 14}, (_, i) => i + 7).map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>)}
+                          </select>
+                          <span className="text-zinc-500 text-xs">a</span>
+                          <select
+                            value={day.end_hour}
+                            onChange={(e) => updateDay(dayNum, 'end_hour', parseInt(e.target.value))}
+                            className="bg-zinc-800 border border-zinc-700 rounded-md text-white text-xs py-1.5 px-2 flex-1"
+                          >
+                            {Array.from({length: 14}, (_, i) => i + 8).map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-600 italic">Cerrado</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={availConfig.available} onChange={(e) => setAvailConfig({...availConfig, available: e.target.checked})} className="accent-amber-500" />
-                  <span className="text-sm text-zinc-300">Disponible ese día</span>
-                </label>
-              </div>
-              {availConfig.available && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-zinc-400 text-xs mb-1 block">Hora inicio</Label>
-                    <select value={availConfig.start_hour} onChange={(e) => setAvailConfig({...availConfig, start_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
-                      {Array.from({length: 14}, (_, i) => i + 7).map(h => <option key={h} value={h}>{h}:00</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="text-zinc-400 text-xs mb-1 block">Hora fin</Label>
-                    <select value={availConfig.end_hour} onChange={(e) => setAvailConfig({...availConfig, end_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
-                      {Array.from({length: 14}, (_, i) => i + 8).map(h => <option key={h} value={h}>{h}:00</option>)}
-                    </select>
-                  </div>
-                </div>
-              )}
-              <Button onClick={handleSetAvailability} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
-                <Save className="w-4 h-4 mr-2" />Guardar horario
+
+              <Button onClick={handleSaveWeeklySchedule} disabled={savingSchedule} className="w-full rounded-full bg-amber-500 text-black hover:bg-amber-600 h-10 font-semibold">
+                {savingSchedule ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar horario semanal</>}
               </Button>
             </div>
 
+            {/* Excepciones por fecha */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-300">Excepciones (festivos, días especiales)</h3>
+              <p className="text-xs text-zinc-500">Modifica el horario de un día concreto sin cambiar tu horario habitual.</p>
+              
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-zinc-300 text-sm mb-1.5 block">Fecha</Label>
+                  <Input type="date" value={overrideDate} onChange={(e) => setOverrideDate(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={overrideConfig.available} onChange={(e) => setOverrideConfig({...overrideConfig, available: e.target.checked})} className="accent-amber-500" />
+                    <span className="text-sm text-zinc-300">{overrideConfig.available ? 'Abierto con horario especial' : 'Cerrado ese día'}</span>
+                  </label>
+                </div>
+                {overrideConfig.available && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-zinc-400 text-xs mb-1 block">Hora inicio</Label>
+                      <select value={overrideConfig.start_hour} onChange={(e) => setOverrideConfig({...overrideConfig, start_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
+                        {Array.from({length: 14}, (_, i) => i + 7).map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-xs mb-1 block">Hora fin</Label>
+                      <select value={overrideConfig.end_hour} onChange={(e) => setOverrideConfig({...overrideConfig, end_hour: e.target.value})} className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-white text-sm py-2 px-2">
+                        {Array.from({length: 14}, (_, i) => i + 8).map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                <Button onClick={handleAddDateOverride} className="w-full rounded-full bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700 h-10 font-semibold">
+                  <Plus className="w-4 h-4 mr-2" />Añadir excepción
+                </Button>
+              </div>
+            </div>
+
+            {/* Lista de excepciones */}
             {Object.keys(customSchedule).length > 0 && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Días Modificados</h3>
+                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Excepciones activas</h3>
                 <div className="space-y-2">
                   {Object.entries(customSchedule).sort().map(([date, cfg]) => (
                     <div key={date} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
@@ -475,9 +567,9 @@ export default function BarberDashboard() {
                         {cfg.available ? (
                           <Badge className="bg-green-500/10 text-green-500 border-0 text-xs">{cfg.start_hour}:00 - {cfg.end_hour}:00</Badge>
                         ) : (
-                          <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">No laborable</Badge>
+                          <Badge className="bg-red-500/10 text-red-400 border-0 text-xs">Cerrado</Badge>
                         )}
-                        <button onClick={() => handleDeleteAvailability(date)} className="text-zinc-600 hover:text-red-400 transition-colors">
+                        <button onClick={() => handleRemoveDateOverride(date)} className="text-zinc-600 hover:text-red-400 transition-colors">
                           <X className="w-4 h-4" />
                         </button>
                       </div>

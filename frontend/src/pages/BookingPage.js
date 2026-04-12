@@ -17,6 +17,7 @@ export default function BookingPage() {
   const { user, loading: authLoading } = useAuth();
   
   const barber = useQuery(api.users.getBarber, { barber_id: barberId });
+  const schedule = useQuery(api.users.getBarberSchedule, { barber_id: barberId });
   const createBooking = useMutation(api.bookings.createBooking);
 
   const [selectedService, setSelectedService] = useState(location.state?.serviceId || "svc_01");
@@ -46,8 +47,40 @@ export default function BookingPage() {
   const subtotal = servicePrice + transportFee + MANAGEMENT_FEE;
   const total = subtotal;
 
-  // Convex MVP: Static mock slots since backend generation logic was removed
-  const availableSlots = ["10:00", "11:00", "12:30", "16:00", "17:30", "19:00"];
+  // Generar slots dinámicos basados en el horario del barbero
+  const getAvailableSlots = () => {
+    if (!selectedDate || !schedule) return [];
+    
+    const dateStr = selectedDate.toISOString().split("T")[0];
+    // JS getDay(): 0=Sunday, 1=Monday... queremos 1=Lunes, 7=Domingo
+    const jsDay = selectedDate.getDay();
+    const dayNum = jsDay === 0 ? 7 : jsDay;
+    
+    // Comprobar si hay excepción para esta fecha
+    const override = schedule.custom_schedule?.[dateStr];
+    if (override) {
+      if (!override.available) return []; // Cerrado por excepción
+      return generateSlots(override.start_hour, override.end_hour);
+    }
+    
+    // Usar horario semanal
+    const weekDay = schedule.weekly_schedule?.[String(dayNum)];
+    if (!weekDay || !weekDay.available) return [];
+    return generateSlots(weekDay.start_hour, weekDay.end_hour);
+  };
+
+  const generateSlots = (startHour, endHour) => {
+    const slots = [];
+    for (let h = startHour; h < endHour; h++) {
+      slots.push(`${String(h).padStart(2, '0')}:00`);
+      if (h + 0.5 < endHour) {
+        slots.push(`${String(h).padStart(2, '0')}:30`);
+      }
+    }
+    return slots;
+  };
+
+  const availableSlots = getAvailableSlots();
 
   const handleConfirm = async () => {
     if (!selectedDate || !selectedTime) {
@@ -107,13 +140,20 @@ export default function BookingPage() {
         {selectedDate && (
           <div>
             <h2 className="text-white font-bold mb-3" style={{ fontFamily: "Syne" }}>Hora</h2>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {availableSlots.map(s => (
-                <button key={s} onClick={() => setSelectedTime(s)} className={`py-3 rounded-xl border font-bold transition-colors ${selectedTime === s ? "bg-amber-500 text-black border-amber-500 shadow-lg shadow-amber-500/20" : "bg-zinc-900 text-zinc-400 border-zinc-700 hover:border-zinc-500"}`}>
-                  {s}
-                </button>
-              ))}
-            </div>
+            {availableSlots.length === 0 ? (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center">
+                <p className="text-zinc-400 text-sm">Este barbero no trabaja el día seleccionado.</p>
+                <p className="text-zinc-600 text-xs mt-1">Prueba con otro día.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {availableSlots.map(s => (
+                  <button key={s} onClick={() => setSelectedTime(s)} className={`py-3 rounded-xl border font-bold transition-colors ${selectedTime === s ? "bg-amber-500 text-black border-amber-500 shadow-lg shadow-amber-500/20" : "bg-zinc-900 text-zinc-400 border-zinc-700 hover:border-zinc-500"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

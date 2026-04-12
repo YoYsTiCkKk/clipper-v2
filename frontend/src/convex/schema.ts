@@ -25,7 +25,10 @@ export default defineSchema({
             coordinates: v.array(v.number()) // [lng, lat]
           })
         ),
-        custom_schedule: v.optional(v.any()), // Ej: { "2025-05-20": { available: false } }
+        // Horario semanal recurrente: claves "1" (lunes) a "7" (domingo)
+        weekly_schedule: v.optional(v.any()),
+        // Excepciones por fecha: "YYYY-MM-DD" -> { available, start_hour, end_hour }
+        custom_schedule: v.optional(v.any()),
       })
     )
   }).index("by_email", ["email"]).index("by_role", ["role"]).index("by_user_id", ["user_id"]),
