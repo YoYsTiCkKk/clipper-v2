@@ -7,15 +7,17 @@ import { Logo } from "@/components/Logo";
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { user, loading } = useAuth();
+  const { user, isNewUser, loading } = useAuth();
 
   // Redirigir automáticamente a usuarios logueados
   useEffect(() => {
     if (loading) return;
-    if (user) {
+    if (isNewUser) {
+      navigate("/select-role", { replace: true });
+    } else if (user) {
       navigate(user.role === "barber" ? "/dashboard" : "/feed", { replace: true });
     }
-  }, [user, loading, navigate]);
+  }, [user, isNewUser, loading, navigate]);
 
   return (
     <div className="min-h-screen bg-zinc-950">
@@ -99,7 +101,7 @@ export default function LandingPage() {
               <Button
                 data-testid="hero-barber-btn"
                 variant="outline"
-                onClick={() => navigate("/auth?tab=register&role=barber")}
+                onClick={() => navigate("/auth?tab=register")}
                 className="rounded-full border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white h-12 px-8 text-base"
               >
                 Soy barbero

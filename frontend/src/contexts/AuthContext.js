@@ -11,19 +11,18 @@ export function AuthProvider({ children }) {
   
   // useQuery devuelve:
   //   undefined → query aún ejecutándose (Convex cargando)
-  //   null     → query terminó pero no existe usuario en la BD
+  //   null     → query terminó pero no existe usuario en la BD (nuevo usuario)
   //   object   → usuario encontrado
   const dbUser = useQuery(api.users.getMe);
 
-  // loading = true mientras:
+  // loading = true solo mientras:
   //   1. Clerk aún no ha cargado
-  //   2. Clerk dice que SÍ estamos loggeados, pero Convex aún NO tiene el
-  //      usuario en la BD. Esto cubre dos casos:
-  //      - dbUser === undefined → la query aún está corriendo
-  //      - dbUser === null → la query terminó pero SyncUserWithConvex aún no
-  //        ha creado el registro. Debemos seguir esperando porque la mutación
-  //        storeUser lo creará en breve y getMe se re-ejecutará reactivamente.
-  const loading = !isLoaded || (isSignedIn === true && !dbUser);
+  //   2. Clerk dice que SÍ estamos loggeados y la query Convex aún está corriendo (undefined)
+  // Nota: dbUser === null con isSignedIn === true significa usuario NUEVO → no es loading
+  const loading = !isLoaded || (isSignedIn === true && dbUser === undefined);
+
+  // isNewUser = signed in via Clerk but has no DB record yet (needs role selection)
+  const isNewUser = isSignedIn === true && dbUser === null;
 
   // isAuthenticated solo es true cuando tenemos el objeto completo de la BD
   const isAuthenticated = isSignedIn === true && !!dbUser;
@@ -31,6 +30,7 @@ export function AuthProvider({ children }) {
   const value = {
     user: dbUser ?? null,  // Exponer null (no undefined) para consumidores
     isAuthenticated,
+    isNewUser,
     login: () => {},
     logout: () => signOut(),
     checkAuth: async () => {},

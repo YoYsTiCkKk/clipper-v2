@@ -11,6 +11,7 @@ import BookingPage from "@/pages/BookingPage";
 import ClientDashboard from "@/pages/ClientDashboard";
 import BarberDashboard from "@/pages/BarberDashboard";
 import PaymentSuccess from "@/pages/PaymentSuccess";
+import RoleSelectionPage from "@/pages/RoleSelectionPage";
 import { SyncUserWithConvex } from "@/components/SyncUserWithConvex";
 
 function AppRouter() {
@@ -20,6 +21,7 @@ function AppRouter() {
       <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/auth" element={<AuthPage />} />
+      <Route path="/select-role" element={<RoleSelectionPage />} />
       <Route path="/feed" element={<FeedPage />} />
       <Route path="/explore" element={<MapSearchPage />} />
       <Route path="/barber/:id" element={<BarberProfilePage />} />

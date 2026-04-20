@@ -12,17 +12,19 @@ export default function AuthPage() {
   const { isSignedIn } = useUser();
   const dbUser = useQuery(api.users.getMe);
   const [tab] = useState(searchParams.get("tab") || "login");
-  const role = searchParams.get("role");
 
   useEffect(() => {
-    if (role === "barber") {
-      localStorage.setItem("pendingRole", "barber");
-    }
-  }, [role]);
-
-  useEffect(() => {
-    if (isSignedIn && dbUser) {
+    if (!isSignedIn) return;
+    
+    // dbUser === undefined → query still loading, wait
+    if (dbUser === undefined) return;
+    
+    if (dbUser) {
+      // Existing user → go to their dashboard
       navigate(dbUser.role === "barber" ? "/dashboard" : "/feed", { replace: true });
+    } else {
+      // New user (signed in but no DB record) → choose role
+      navigate("/select-role", { replace: true });
     }
   }, [isSignedIn, dbUser, navigate]);
 
