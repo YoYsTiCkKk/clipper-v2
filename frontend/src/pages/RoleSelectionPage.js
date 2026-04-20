@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
 import { useMutation, useQuery } from "convex/react";
@@ -9,23 +9,35 @@ import { toast } from "sonner";
 
 export default function RoleSelectionPage() {
   const navigate = useNavigate();
-  const { user: clerkUser, isSignedIn } = useUser();
+  const { user: clerkUser, isSignedIn, isLoaded } = useUser();
   const dbUser = useQuery(api.users.getMe);
   const storeUser = useMutation(api.users.storeUser);
   const [selected, setSelected] = useState(null);
   const [creating, setCreating] = useState(false);
 
-  // If not signed in, go to auth
-  if (!isSignedIn) {
-    navigate("/auth", { replace: true });
-    return null;
+  // Handle redirects in useEffect to avoid render-loop flickering
+  useEffect(() => {
+    if (!isLoaded) return; // Clerk still loading
+    if (!isSignedIn) { navigate("/auth", { replace: true }); return; }
+    if (dbUser) {
+      // User already exists → go to their dashboard
+      navigate(dbUser.role === "barber" ? "/dashboard" : "/feed", { replace: true });
+    }
+    // dbUser === undefined → query still loading, wait
+    // dbUser === null → new user, show role selection (do nothing)
+  }, [isLoaded, isSignedIn, dbUser, navigate]);
+
+  // Show spinner while Clerk or Convex query is loading
+  if (!isLoaded || !isSignedIn || dbUser === undefined) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
-  // If user already exists in DB, redirect to their dashboard
-  if (dbUser) {
-    navigate(dbUser.role === "barber" ? "/dashboard" : "/feed", { replace: true });
-    return null;
-  }
+  // If dbUser exists, useEffect will redirect — show nothing
+  if (dbUser) return null;
 
   const handleConfirm = async () => {
     if (!selected || !clerkUser) return;
@@ -38,7 +50,7 @@ export default function RoleSelectionPage() {
         picture: clerkUser.imageUrl
       });
       toast.success(selected === "barber" ? "¡Bienvenido, barbero!" : "¡Cuenta creada!");
-      // AuthContext will detect the new dbUser and redirect
+      // dbUser query will reactively update → useEffect will redirect
     } catch (err) {
       console.error(err);
       toast.error("Error al crear la cuenta");

@@ -14,7 +14,7 @@ export function BottomNav() {
     { icon: Scissors, label: "Feed", path: "/feed" },
     { icon: Search, label: "Explorar", path: "/explore" },
     { icon: Calendar, label: "Reservas", path: "/bookings" },
-    { icon: User, label: "Perfil", path: "/bookings" },
+    { icon: User, label: "Perfil", path: "/profile" },
   ];
 
   const barberItems = [
