@@ -235,3 +235,224 @@ export const getBarberSchedule = query({
   }
 });
 
+// ==================== SUBSCRIPTION SYSTEM ====================
+
+const PLAN_LIMITS: Record<string, { bookings: number; portfolio: number }> = {
+  trial:          { bookings: Infinity, portfolio: 5 },
+  expired:        { bookings: 15,       portfolio: 3 },
+  personal_basic: { bookings: 40,       portfolio: 15 },
+  personal_pro:   { bookings: 120,      portfolio: Infinity },
+  business_basic: { bookings: 300,      portfolio: Infinity },
+  business_pro:   { bookings: Infinity, portfolio: Infinity },
+};
+
+function getPlanKey(bp: any): string {
+  const status = bp?.subscription_status;
+  if (!status || status === "trial") return "trial";
+  if (status === "expired" || status === "cancelled") return "expired";
+  if (status === "active" && bp?.subscription_plan) return bp.subscription_plan;
+  return "expired";
+}
+
+// Set 30-day trial when a barber registers
+export const setTrialOnRegistration = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No autenticado");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_user_id", (q) => q.eq("user_id", identity.subject))
+      .first();
+
+    if (!user || user.role !== "barber") throw new Error("Acceso denegado");
+
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 30);
+
+    const profile = user.barber_profile || { bio: "", rating: 0, address: "", offers_home_service: false };
+    profile.subscription_status = "trial";
+    profile.trial_end_date = trialEnd.toISOString().split("T")[0];
+
+    await ctx.db.patch(user._id, { barber_profile: profile });
+    return { trial_end_date: profile.trial_end_date };
+  },
+});
+
+// Get full subscription status + usage for the current barber
+export const getSubscriptionStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_user_id", (q) => q.eq("user_id", identity.subject))
+      .first();
+
+    if (!user || user.role !== "barber") return null;
+
+    const bp = user.barber_profile;
+    const planKey = getPlanKey(bp);
+    const limits = PLAN_LIMITS[planKey] || PLAN_LIMITS.expired;
+
+    // Count bookings this calendar month
+    const now = new Date();
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const allBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_barber", (q) => q.eq("barber_id", user.user_id))
+      .collect();
+    const monthlyBookings = allBookings.filter(
+      (b) => b.date >= monthStart && b.status !== "cancelled"
+    ).length;
+
+    // Count portfolio items
+    const portfolioCount = (
+      await ctx.db
+        .query("portfolio_items")
+        .withIndex("by_barber", (q) => q.eq("barber_id", user.user_id))
+        .collect()
+    ).length;
+
+    // Days remaining in trial
+    let trialDaysLeft: number | null = null;
+    if (bp?.subscription_status === "trial" && bp?.trial_end_date) {
+      const end = new Date(bp.trial_end_date);
+      trialDaysLeft = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    }
+
+    return {
+      status: bp?.subscription_status || "trial",
+      plan: bp?.subscription_plan || null,
+      planKey,
+      trial_end_date: bp?.trial_end_date || null,
+      subscription_end_date: bp?.subscription_end_date || null,
+      trialDaysLeft,
+      limits: {
+        bookings: limits.bookings === Infinity ? null : limits.bookings,
+        portfolio: limits.portfolio === Infinity ? null : limits.portfolio,
+      },
+      usage: {
+        bookings: monthlyBookings,
+        portfolio: portfolioCount,
+      },
+    };
+  },
+});
+
+// Called on dashboard load — expire trial if past end date
+export const checkAndExpireTrial = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_user_id", (q) => q.eq("user_id", identity.subject))
+      .first();
+
+    if (!user || user.role !== "barber") return;
+
+    const bp = user.barber_profile;
+    if (bp?.subscription_status !== "trial" || !bp?.trial_end_date) return;
+
+    const today = new Date().toISOString().split("T")[0];
+    if (today > bp.trial_end_date) {
+      bp.subscription_status = "expired";
+      await ctx.db.patch(user._id, { barber_profile: bp });
+    }
+  },
+});
+
+// Called after Stripe webhook confirms subscription payment
+export const activateSubscription = mutation({
+  args: {
+    plan: v.union(
+      v.literal("personal_basic"),
+      v.literal("personal_pro"),
+      v.literal("business_basic"),
+      v.literal("business_pro")
+    ),
+    stripe_customer_id: v.optional(v.string()),
+    stripe_subscription_id: v.optional(v.string()),
+    end_date: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("No autenticado");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_user_id", (q) => q.eq("user_id", identity.subject))
+      .first();
+
+    if (!user || user.role !== "barber") throw new Error("Acceso denegado");
+
+    const bp = user.barber_profile || { bio: "", rating: 0, address: "", offers_home_service: false };
+    bp.subscription_status = "active";
+    bp.subscription_plan = args.plan;
+    if (args.stripe_customer_id) bp.stripe_customer_id = args.stripe_customer_id;
+    if (args.stripe_subscription_id) bp.stripe_subscription_id = args.stripe_subscription_id;
+    if (args.end_date) bp.subscription_end_date = args.end_date;
+
+    await ctx.db.patch(user._id, { barber_profile: bp });
+    return true;
+  },
+});
+
+// One-time migration: give all existing barbers a 30-day trial from today
+export const migrateExistingBarbers = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const barbers = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "barber"))
+      .collect();
+
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 30);
+    const trialEndStr = trialEnd.toISOString().split("T")[0];
+
+    let migrated = 0;
+    for (const barber of barbers) {
+      const bp = barber.barber_profile;
+      if (!bp?.subscription_status) {
+        const updated = {
+          ...bp,
+          bio: bp?.bio || "",
+          rating: bp?.rating || 0,
+          address: bp?.address || "",
+          offers_home_service: bp?.offers_home_service || false,
+          subscription_status: "trial" as const,
+          trial_end_date: trialEndStr,
+        };
+        await ctx.db.patch(barber._id, { barber_profile: updated });
+        migrated++;
+      }
+    }
+    return { migrated };
+  },
+});
+
+// Utility: get plan limits for a barber_id (used by bookings/portfolio mutations)
+export const getBarberPlanLimits = query({
+  args: { barber_id: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.barber_id))
+      .first();
+    if (!user) return null;
+    const planKey = getPlanKey(user.barber_profile);
+    const limits = PLAN_LIMITS[planKey] || PLAN_LIMITS.expired;
+    return {
+      planKey,
+      bookingLimit: limits.bookings === Infinity ? null : limits.bookings,
+      portfolioLimit: limits.portfolio === Infinity ? null : limits.portfolio,
+    };
+  },
+});

@@ -12,22 +12,20 @@ export default function RoleSelectionPage() {
   const { user: clerkUser, isSignedIn, isLoaded } = useUser();
   const dbUser = useQuery(api.users.getMe);
   const storeUser = useMutation(api.users.storeUser);
+  const setTrialOnRegistration = useMutation(api.users.setTrialOnRegistration);
   const [selected, setSelected] = useState(null);
   const [creating, setCreating] = useState(false);
 
   // Handle redirects in useEffect to avoid render-loop flickering
   useEffect(() => {
-    if (!isLoaded) return; // Clerk still loading
+    if (!isLoaded) return;
     if (!isSignedIn) { navigate("/auth", { replace: true }); return; }
     if (dbUser) {
-      // User already exists → go to their dashboard
       navigate(dbUser.role === "barber" ? "/dashboard" : "/feed", { replace: true });
     }
-    // dbUser === undefined → query still loading, wait
-    // dbUser === null → new user, show role selection (do nothing)
   }, [isLoaded, isSignedIn, dbUser, navigate]);
 
-  // Show spinner while Clerk or Convex query is loading
+  // Show spinner while loading
   if (!isLoaded || !isSignedIn || dbUser === undefined) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -36,7 +34,6 @@ export default function RoleSelectionPage() {
     );
   }
 
-  // If dbUser exists, useEffect will redirect — show nothing
   if (dbUser) return null;
 
   const handleConfirm = async () => {
@@ -49,8 +46,11 @@ export default function RoleSelectionPage() {
         role: selected,
         picture: clerkUser.imageUrl
       });
-      toast.success(selected === "barber" ? "¡Bienvenido, barbero!" : "¡Cuenta creada!");
-      // dbUser query will reactively update → useEffect will redirect
+      // Start 30-day trial immediately for new barbers
+      if (selected === "barber") {
+        try { await setTrialOnRegistration(); } catch {}
+      }
+      toast.success(selected === "barber" ? "¡Bienvenido, barbero! Tienes 30 días gratis." : "¡Cuenta creada!");
     } catch (err) {
       console.error(err);
       toast.error("Error al crear la cuenta");

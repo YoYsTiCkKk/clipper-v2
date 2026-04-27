@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Scissors, Calendar, Clock, Plus, Trash2, LogOut,
   MapPin, Phone, User, Image as ImageIcon, Save, Loader2, Check, X,
-  Upload, CalendarDays, Star, MessageSquare, LayoutDashboard
+  Upload, CalendarDays, Star, MessageSquare, LayoutDashboard, Zap, Crown, ChevronRight
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
@@ -55,6 +55,13 @@ export default function BarberDashboard() {
   const generateUploadUrl = useMutation(api.portfolio.generateUploadUrl);
   const addPortfolioPost = useMutation(api.portfolio.addPortfolioPost);
   const deletePortfolioPost = useMutation(api.portfolio.deletePortfolioImage);
+  const checkAndExpireTrial = useMutation(api.users.checkAndExpireTrial);
+  const boostPostMutation = useMutation(api.portfolio.boostPost);
+  const subscriptionStatus = useQuery(api.users.getSubscriptionStatus);
+
+  // Plan modal state
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [boostingPostId, setBoostingPostId] = useState(null);
 
   // Component States
   const [newService, setNewService] = useState({ name: "", price: "", duration: "30" });
@@ -97,6 +104,8 @@ export default function BarberDashboard() {
     if (authLoading) return;
     if (!user) { navigate("/auth", { replace: true }); return; }
     if (user.role !== "barber") { navigate("/bookings", { replace: true }); return; }
+    // Check if trial has expired
+    checkAndExpireTrial().catch(() => {});
   }, [user, navigate, authLoading]);
 
   // Sync profile data when Convex query loads
@@ -353,6 +362,37 @@ export default function BarberDashboard() {
           </button>
         </div>
 
+        {/* Subscription Warning Banner */}
+        {subscriptionStatus && (() => {
+          const { status, trialDaysLeft, limits, usage } = subscriptionStatus;
+          const bookingsPct = limits.bookings ? (usage.bookings / limits.bookings) * 100 : 0;
+          if (status === "expired" && usage.bookings >= limits.bookings) {
+            return (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-red-400">Has alcanzado el límite de reservas este mes. Actualiza tu plan para seguir recibiendo clientes.</p>
+                <button onClick={() => setShowPlanModal(true)} className="text-xs bg-amber-500 text-black font-bold px-3 py-1.5 rounded-full whitespace-nowrap">Ver planes</button>
+              </div>
+            );
+          }
+          if (status === "trial" && trialDaysLeft !== null && trialDaysLeft <= 7) {
+            return (
+              <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-amber-400">Tu prueba gratuita acaba en <strong>{trialDaysLeft} días</strong>.</p>
+                <button onClick={() => setShowPlanModal(true)} className="text-xs bg-amber-500 text-black font-bold px-3 py-1.5 rounded-full whitespace-nowrap">Ver planes</button>
+              </div>
+            );
+          }
+          if (status === "expired" && bookingsPct >= 80) {
+            return (
+              <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-amber-400">{usage.bookings}/{limits.bookings} reservas usadas este mes.</p>
+                <button onClick={() => setShowPlanModal(true)} className="text-xs bg-amber-500 text-black font-bold px-3 py-1.5 rounded-full whitespace-nowrap">Ampliar</button>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         {/* Active Section Content */}
         {activeSection === "bookings" && (
           <div className="space-y-3 animate-fade-in-up">
@@ -463,9 +503,13 @@ export default function BarberDashboard() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {portfolio.map((post) => {
                   const mediaCount = post.media?.length || 0;
-                  // Retrocompatibilidad con posts viejos (single url)
                   const firstMedia = mediaCount > 0 ? post.media[0] : { url: post.url, type: "image" };
                   const isVideo = firstMedia.type === "video";
+                  const now = new Date().toISOString();
+                  const isBoosted = !!(post.boosted_until && post.boosted_until > now);
+                  const boostDaysLeft = isBoosted
+                    ? Math.ceil((new Date(post.boosted_until) - new Date()) / 86400000)
+                    : 0;
                   
                   return (
                     <div key={post._id} className="relative group rounded-xl overflow-hidden aspect-square bg-zinc-900 border border-zinc-800">
@@ -480,9 +524,26 @@ export default function BarberDashboard() {
                            <ImageIcon className="w-3 h-3" /> {mediaCount}
                         </div>
                       )}
+
+                      {isBoosted && (
+                        <div className="absolute top-2 left-2 bg-amber-500 rounded-md px-1.5 py-0.5 text-xs font-bold flex items-center gap-1 text-black z-10">
+                          <Zap className="w-3 h-3" /> {boostDaysLeft}d
+                        </div>
+                      )}
                       
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors flex items-center justify-center z-20">
-                        <button onClick={() => handleDeletePost(post._id)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-2 hover:bg-red-600"><Trash2 className="w-4 h-4" /></button>
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors flex items-center justify-center gap-2 z-20">
+                        {!isBoosted && (
+                          <button
+                            onClick={() => setBoostingPostId(post._id)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity bg-amber-500 text-black rounded-full p-2 hover:bg-amber-400"
+                            title="Destacar post"
+                          >
+                            <Zap className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button onClick={() => handleDeletePost(post._id)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-2 hover:bg-red-600">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -696,11 +757,54 @@ export default function BarberDashboard() {
                 {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Guardando...</> : <><Save className="w-4 h-4 mr-2" />Guardar perfil</>}
               </Button>
             </div>
+
+            {/* Plan Status Card */}
+            {subscriptionStatus && (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-amber-500" /> Tu plan actual
+                  </h3>
+                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                    subscriptionStatus.status === "active" ? "bg-amber-500/20 text-amber-400" :
+                    subscriptionStatus.status === "trial" ? "bg-blue-500/20 text-blue-400" :
+                    "bg-zinc-700 text-zinc-400"
+                  }`}>
+                    {subscriptionStatus.status === "trial" ? `Prueba — ${subscriptionStatus.trialDaysLeft}d restantes` :
+                     subscriptionStatus.status === "active" ? subscriptionStatus.plan?.replace("_", " ").toUpperCase() :
+                     "Expirado"}
+                  </span>
+                </div>
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Reservas este mes</span>
+                    <span className="text-white font-medium">
+                      {subscriptionStatus.usage.bookings}
+                      {subscriptionStatus.limits.bookings ? `/${subscriptionStatus.limits.bookings}` : " (ilimitadas)"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Fotos en portfolio</span>
+                    <span className="text-white font-medium">
+                      {subscriptionStatus.usage.portfolio}
+                      {subscriptionStatus.limits.portfolio ? `/${subscriptionStatus.limits.portfolio}` : " (ilimitadas)"}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPlanModal(true)}
+                  className="w-full flex items-center justify-between bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg px-4 py-3 transition-colors"
+                >
+                  <span className="text-sm font-semibold text-amber-400">Ver planes y actualizar</span>
+                  <ChevronRight className="w-4 h-4 text-amber-400" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Bottom Navigation — replaces the old BottomNav for barbers */}
+      {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 z-[1000] glass border-t border-zinc-800/50 safe-area-inset-bottom">
         <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
           {SECTIONS.map((section) => (
@@ -721,6 +825,87 @@ export default function BarberDashboard() {
           ))}
         </div>
       </nav>
+
+      {/* Plan Picker Modal */}
+      {showPlanModal && (
+        <div className="fixed inset-0 z-[2000] bg-black/80 flex items-end sm:items-center justify-center p-4" onClick={() => setShowPlanModal(false)}>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-white" style={{ fontFamily: "Syne" }}>Elige tu plan</h2>
+              <button onClick={() => setShowPlanModal(false)}><X className="w-5 h-5 text-zinc-500" /></button>
+            </div>
+
+            <p className="text-xs text-zinc-500 uppercase font-bold mb-3 tracking-wider">Personal — Freelancers</p>
+            <div className="space-y-3 mb-6">
+              {[
+                { key: "personal_basic", label: "Personal Basic", price: "€12/mes", bookings: "40 reservas/mes", portfolio: "15 fotos" },
+                { key: "personal_pro", label: "Personal Pro", price: "€22/mes", bookings: "120 reservas/mes", portfolio: "Ilimitadas", highlight: true },
+              ].map(plan => (
+                <div key={plan.key} className={`border rounded-xl p-4 ${plan.highlight ? "border-amber-500/50 bg-amber-500/5" : "border-zinc-800 bg-zinc-900"}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="font-bold text-white">{plan.label}</p>
+                      <p className="text-xs text-zinc-500">{plan.bookings} · {plan.portfolio}</p>
+                    </div>
+                    <p className="text-amber-500 font-bold">{plan.price}</p>
+                  </div>
+                  <button disabled className="w-full mt-2 bg-zinc-700 text-zinc-400 rounded-full py-2 text-sm font-semibold cursor-not-allowed">
+                    Próximamente
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-zinc-500 uppercase font-bold mb-3 tracking-wider">Business — Establecimientos</p>
+            <div className="space-y-3">
+              {[
+                { key: "business_basic", label: "Business Basic", price: "€45/mes", bookings: "300 reservas/mes", portfolio: "Ilimitadas" },
+                { key: "business_pro", label: "Business Pro", price: "€89/mes", bookings: "Ilimitadas", portfolio: "Ilimitadas", highlight: true },
+              ].map(plan => (
+                <div key={plan.key} className={`border rounded-xl p-4 ${plan.highlight ? "border-amber-500/50 bg-amber-500/5" : "border-zinc-800 bg-zinc-900"}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="font-bold text-white">{plan.label}</p>
+                      <p className="text-xs text-zinc-500">{plan.bookings} · {plan.portfolio}</p>
+                    </div>
+                    <p className="text-amber-500 font-bold">{plan.price}</p>
+                  </div>
+                  <button disabled className="w-full mt-2 bg-zinc-700 text-zinc-400 rounded-full py-2 text-sm font-semibold cursor-not-allowed">
+                    Próximamente
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Boost Post Confirm Modal */}
+      {boostingPostId && (
+        <div className="fixed inset-0 z-[2000] bg-black/80 flex items-center justify-center p-4" onClick={() => setBoostingPostId(null)}>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-amber-500/10 rounded-full flex items-center justify-center">
+                <Zap className="w-5 h-5 text-amber-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">Destacar publicación</h3>
+                <p className="text-xs text-zinc-500">7 días en el top del feed</p>
+              </div>
+            </div>
+            <p className="text-zinc-400 text-sm mb-6">Tu publicación aparecerá en primer lugar en el feed de clientes durante 7 días con el badge ⚡ Destacado.</p>
+            <div className="flex items-center justify-between mb-4 bg-zinc-900 rounded-xl px-4 py-3">
+              <span className="text-zinc-300 text-sm">Precio</span>
+              <span className="text-amber-500 font-bold text-lg">€10</span>
+            </div>
+            <button disabled className="w-full bg-zinc-700 text-zinc-400 rounded-full py-3 font-semibold cursor-not-allowed mb-2">
+              Próximamente
+            </button>
+            <button onClick={() => setBoostingPostId(null)} className="w-full text-zinc-500 text-sm py-2">Cancelar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

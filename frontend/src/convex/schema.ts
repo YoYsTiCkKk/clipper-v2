@@ -29,6 +29,23 @@ export default defineSchema({
         weekly_schedule: v.optional(v.any()),
         // Excepciones por fecha: "YYYY-MM-DD" -> { available, start_hour, end_hour }
         custom_schedule: v.optional(v.any()),
+        // Subscription / monetization
+        subscription_status: v.optional(v.union(
+          v.literal("trial"),
+          v.literal("active"),
+          v.literal("expired"),
+          v.literal("cancelled")
+        )),
+        subscription_plan: v.optional(v.union(
+          v.literal("personal_basic"),
+          v.literal("personal_pro"),
+          v.literal("business_basic"),
+          v.literal("business_pro")
+        )),
+        trial_end_date: v.optional(v.string()),
+        subscription_end_date: v.optional(v.string()),
+        stripe_customer_id: v.optional(v.string()),
+        stripe_subscription_id: v.optional(v.string()),
       })
     )
   }).index("by_email", ["email"]).index("by_role", ["role"]).index("by_user_id", ["user_id"]),
@@ -63,6 +80,7 @@ export default defineSchema({
     format: v.optional(v.string()), 
     width: v.optional(v.number()),
     height: v.optional(v.number()),
+    boosted_until: v.optional(v.string()), // ISO date — post aparece primero en el feed
     media: v.optional(
       v.array(
         v.object({

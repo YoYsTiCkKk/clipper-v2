@@ -1,11 +1,28 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+const PLAN_LIMITS: Record<string, number> = {
+  trial:          Infinity,
+  expired:        15,
+  personal_basic: 40,
+  personal_pro:   120,
+  business_basic: 300,
+  business_pro:   Infinity,
+};
+
+function getBarberPlanKey(bp: any): string {
+  const status = bp?.subscription_status;
+  if (!status || status === "trial") return "trial";
+  if (status === "expired" || status === "cancelled") return "expired";
+  if (status === "active" && bp?.subscription_plan) return bp.subscription_plan;
+  return "expired";
+}
+
 // Crear una reserva
 export const createBooking = mutation({
   args: {
-    barber_id: v.string(), // ID del usuario barbero de Convex
-    service_id: v.string(), // o Id de services
+    barber_id: v.string(),
+    service_id: v.string(),
     date: v.string(),
     time: v.string(),
     payment_method: v.string(),
@@ -28,8 +45,26 @@ export const createBooking = mutation({
 
     if (!barber) throw new Error("Barbero no encontrado");
 
-    // NOTA: Para MVP simplificado, mockeamos el servicio. En prod, leeriamos ctx.db.get(args.service_id)
-    const service_name = "Corte Básico"; // Placeholder mientras migramos "services"
+    // Check barber's monthly booking limit
+    const planKey = getBarberPlanKey(barber.barber_profile);
+    const bookingLimit = PLAN_LIMITS[planKey] ?? 15;
+    if (bookingLimit !== Infinity) {
+      const now = new Date();
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const monthBookings = await ctx.db
+        .query("bookings")
+        .withIndex("by_barber", (q) => q.eq("barber_id", args.barber_id))
+        .collect();
+      const count = monthBookings.filter(
+        (b) => b.date >= monthStart && b.status !== "cancelled"
+      ).length;
+      if (count >= bookingLimit) {
+        throw new Error(`BOOKING_LIMIT_REACHED:${bookingLimit}`);
+      }
+    }
+
+    // NOTA: Para MVP simplificado, mockeamos el servicio
+    const service_name = "Corte Básico";
     const total_amount = 15;
 
     return await ctx.db.insert("bookings", {
@@ -41,7 +76,7 @@ export const createBooking = mutation({
       client_name: client.name,
       date: args.date,
       time: args.time,
-      status: args.payment_method === "cash" ? "pending" : "confirmed", 
+      status: args.payment_method === "cash" ? "pending" : "confirmed",
       total_amount: total_amount,
       payment_method: args.payment_method
     });
