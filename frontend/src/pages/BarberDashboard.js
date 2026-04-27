@@ -838,8 +838,8 @@ export default function BarberDashboard() {
             <p className="text-xs text-zinc-500 uppercase font-bold mb-3 tracking-wider">Personal — Freelancers</p>
             <div className="space-y-3 mb-6">
               {[
-                { key: "personal_basic", label: "Personal Basic", price: "€12/mes", bookings: "40 reservas/mes", portfolio: "15 fotos" },
-                { key: "personal_pro", label: "Personal Pro", price: "€22/mes", bookings: "120 reservas/mes", portfolio: "Ilimitadas", highlight: true },
+                { key: "personal_basic", label: "Personal Basic", price: "€20/mes", bookings: "40 reservas/mes", portfolio: "15 fotos" },
+                { key: "personal_pro", label: "Personal Pro", price: "€60/mes", bookings: "120 reservas/mes", portfolio: "Ilimitadas", highlight: true },
               ].map(plan => (
                 <div key={plan.key} className={`border rounded-xl p-4 ${plan.highlight ? "border-amber-500/50 bg-amber-500/5" : "border-zinc-800 bg-zinc-900"}`}>
                   <div className="flex items-center justify-between mb-2">
@@ -859,8 +859,8 @@ export default function BarberDashboard() {
             <p className="text-xs text-zinc-500 uppercase font-bold mb-3 tracking-wider">Business — Establecimientos</p>
             <div className="space-y-3">
               {[
-                { key: "business_basic", label: "Business Basic", price: "€45/mes", bookings: "300 reservas/mes", portfolio: "Ilimitadas" },
-                { key: "business_pro", label: "Business Pro", price: "€89/mes", bookings: "Ilimitadas", portfolio: "Ilimitadas", highlight: true },
+                { key: "business_basic", label: "Business Basic", price: "€100/mes", bookings: "300 reservas/mes", portfolio: "Ilimitadas" },
+                { key: "business_pro", label: "Business Pro", price: "€350/mes", bookings: "Ilimitadas", portfolio: "Ilimitadas", highlight: true },
               ].map(plan => (
                 <div key={plan.key} className={`border rounded-xl p-4 ${plan.highlight ? "border-amber-500/50 bg-amber-500/5" : "border-zinc-800 bg-zinc-900"}`}>
                   <div className="flex items-center justify-between mb-2">
@@ -876,6 +876,7 @@ export default function BarberDashboard() {
                 </div>
               ))}
             </div>
+
           </div>
         </div>
       )}
